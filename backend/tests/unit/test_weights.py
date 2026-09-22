@@ -1,0 +1,122 @@
+import pytest
+import math
+from wall_engine.units.registry import Q_
+from wall_engine.domain.wall.geometry import WallGeometry
+from wall_engine.domain.soil.entities import Soil
+from wall_engine.domain.materials.concrete import Concrete
+from wall_engine.domain.materials.steel import ReinforcementSteel
+from wall_engine.domain.wall.entities import Wall, WallMaterials
+from wall_engine.calculations.loads.weight_calculator import WeightCalculator
+import uuid
+
+def create_test_wall() -> Wall:
+    geom = WallGeometry(
+        stem_height=Q_(5.0, "m"),
+        stem_thickness_base=Q_(0.5, "m"),
+        stem_thickness_top=Q_(0.3, "m"),
+        footing_width=Q_(3.5, "m"),
+        footing_thickness=Q_(0.5, "m"),
+        toe_length=Q_(1.0, "m"),
+        heel_length=Q_(2.0, "m"),
+        toe_cover_soil=Q_(0.5, "m"),
+        key_depth=None,
+        key_width=None,
+        backfill_slope=Q_(0, "degrees"),
+        stem_batter=Q_(0, "degrees"),
+        back_face_angle=Q_(90, "degrees")
+    )
+    concrete = Concrete(Q_(28, "MPa"), Q_(24, "kN/m**3"), None)
+    steel = ReinforcementSteel(Q_(420, "MPa"), None, Q_(200000, "MPa"))
+    materials = WallMaterials(concrete, steel, Q_(7.5, "cm"))
+    soil = Soil("Relleno", Q_(18, "kN/m**3"), None, Q_(30, "degrees"), Q_(0, "kPa"), None, None)
+    
+    return Wall(
+        id=uuid.uuid4(),
+        name="Muro estatico",
+        geometry=geom,
+        materials=materials,
+        backfill=soil,
+        foundation_soil=soil,
+        groundwater=None,
+        surcharges=[],
+        seismic=None
+    )
+
+def test_concrete_weights():
+    wall = create_test_wall()
+    calc = WeightCalculator()
+    blocks = calc.calculate_concrete_blocks(wall)
+    
+    # 3 bloques esperados: Zapata, Fuste Rect, Fuste Triang
+    assert len(blocks) == 3
+    
+    # Peso total del concreto
+    total_weight = sum(b.weight.to("kN/m").magnitude for b in blocks)
+    
+    vol_zapata = 3.5 * 0.5 # 1.75
+    vol_rect = 0.3 * 5.0 # 1.50
+    vol_tri = 0.5 * 0.2 * 5.0 # 0.50
+    expected_vol = 1.75 + 1.50 + 0.50 # 3.75 m3/m
+    expected_weight = expected_vol * 24 # 90 kN/m
+    
+    assert total_weight == pytest.approx(expected_weight)
+    
+    # Comprobar brazos de palanca (x) desde la punta
+    # Zapata C.G. = 1.75 m
+    footing = next(b for b in blocks if "Footing" in b.name)
+    assert footing.x_centroid.to("m").magnitude == 1.75
+    
+    # Fuste rect C.G = 1.0 (toe) + 0.5 (base) - 0.15 (mitad tope) = 1.35m
+    stem_rect = next(b for b in blocks if "Rectangular" in b.name)
+    assert stem_rect.x_centroid.to("m").magnitude == 1.35
+    
+    # Fuste tri C.G = 1.0 + 2/3*(0.2) = 1.1333m
+    stem_tri = next(b for b in blocks if "Triangular" in b.name)
+    assert stem_tri.x_centroid.to("m").magnitude == pytest.approx(1.133, abs=0.01)
+
+def test_soil_weights():
+    wall = create_test_wall()
+    calc = WeightCalculator()
+    blocks = calc.calculate_soil_blocks(wall)
+    
+    # 2 bloques: Talón, Punta
+    assert len(blocks) == 2
+    
+    heel_block = next(b for b in blocks if "Heel" in b.name)
+    toe_block = next(b for b in blocks if "Toe" in b.name)
+    
+    # Peso sobre talón = 2.0 * 5.0 * 18 = 180 kN/m
+    assert heel_block.weight.to("kN/m").magnitude == 180
+    assert heel_block.x_centroid.to("m").magnitude == 1.0 + 0.5 + 1.0 # 2.5m
+    assert heel_block.y_centroid.to("m").magnitude == 0.5 + 2.5 # 3.0m
+    
+    # Peso sobre punta = 1.0 * 0.5 * 18 = 9 kN/m
+    assert toe_block.weight.to("kN/m").magnitude == 9
+    assert toe_block.x_centroid.to("m").magnitude == 0.5
+    assert toe_block.y_centroid.to("m").magnitude == 0.5 + 0.25 # 0.75m
+
+def test_seismic_inertial_loads():
+    from wall_engine.seismic.parameters import SeismicParameters
+    from wall_engine.domain.loads.combinations import LoadType
+    wall = create_test_wall()
+    wall.seismic = SeismicParameters(ag=0.2, kh=0.2, kv=0.0, soil_factor=None, seismic_zone=None)
+    calc = WeightCalculator()
+    eq_loads = calc.calculate_seismic_inertial_loads(wall)
+    
+    # 3 concrete blocks + 2 soil blocks = 5 EQ loads
+    assert len(eq_loads) == 5
+    
+    total_kh_concrete_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIR" in b.name)
+    total_kh_soil_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIS" in b.name)
+    
+    concrete_weight = 90.0 # From previous test
+    soil_weight = 189.0 # From previous test (180 + 9)
+    
+    assert total_kh_concrete_weight == pytest.approx(concrete_weight * 0.2)
+    assert total_kh_soil_weight == pytest.approx(soil_weight * 0.2)
+    
+    # Ensure all are of type EQ and have positive force_x
+    for eq_load in eq_loads:
+        assert eq_load.load_type == LoadType.EQ
+        assert eq_load.force_x.magnitude > 0
+        assert eq_load.force_y.magnitude == 0

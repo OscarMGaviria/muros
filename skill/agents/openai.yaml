@@ -1,0 +1,5 @@
+interface:
+  display_name: "Diseño de muros de contención"
+  short_description: "Calcula y documenta muros en voladizo"
+  brand_color: "#D97706"
+  default_prompt: "Usa $diseno-muros-contencion para diseñar y verificar un muro de contención en concreto reforzado."

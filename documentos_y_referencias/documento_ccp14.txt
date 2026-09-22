@@ -1,0 +1,339 @@
+% All lines that begin with an '%' are comments
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{setspace}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\onehalfspacing
+
+\begin{document}
+
+\title{\textbf{Manual de Procedimiento de Diseño de Muros de Contención}\\
+\large Guía Extensa LRFD según la Norma Colombiana de Diseño de Puentes CCP-14}
+\author{Ingeniería Estructural y Geotécnica}
+\date{\today}
+\maketitle
+
+\begin{abstract}
+El presente documento constituye una memoria de cálculo y un manual de procedimiento exhaustivo para el diseño integral de muros de contención en voladizo. Con un enfoque estricto en la Norma Colombiana de Diseño de Puentes (CCP-14) basada en AASHTO LRFD, este manual desarrolla paso a paso los lineamientos normativos. Se abarcan desde la conceptualización geométrica, la caracterización de cargas estáticas y dinámicas (sismo), las verificaciones de estabilidad global, hasta el diseño interno de concreto reforzado de los elementos estructurales. Este documento está diseñado para proveer el sustento teórico y práctico completo.
+\end{abstract}
+
+\tableofcontents
+
+\newpage
+
+\section{Introducción y Filosofía LRFD}
+
+\subsection{El Cambio Paradigmático del CCP-14}
+El diseño tradicional de estructuras de contención se fundamentó durante décadas en la metodología de Esfuerzos de Trabajo (ASD). La norma CCP-14 obliga a la transición hacia el diseño LRFD (Load and Resistance Factor Design). Esta metodología calibra la probabilidad estadística de que una carga supere la resistencia de la estructura. 
+
+La ecuación fundamental de diseño se define como:
+\[ \sum \eta_i \gamma_i Q_i \le \phi R_n \]
+Donde $\eta_i$ considera la ductilidad, $\gamma_i$ es el factor de carga estadístico, $Q_i$ es la solicitud, $\phi$ es el factor de resistencia y $R_n$ la resistencia nominal.
+
+\subsection{Estados Límite (Numeral 3.4 CCP-14)}
+Todo diseño de muro debe garantizar su competencia ante cuatro grupos principales de estados límite, aunque para muros en voladizo rigen principalmente tres:
+\begin{itemize}
+    \item \textbf{Resistencia I}: Combinación básica de cargas gravitacionales. Aquí el empuje de tierras (EH) se mayora drásticamente (hasta 1.50) para verificar el colapso, el volcamiento y la ruptura estructural.
+    \item \textbf{Servicio I}: Condiciones normales de operación. Ninguna carga se mayora ($\gamma=1.0$). Se utiliza estrictamente para controlar deformaciones, predecir asentamientos en el suelo y, crucialmente en muros, para el control elástico de la fisuración del concreto.
+    \item \textbf{Evento Extremo I}: Combinación que incluye la fuerza sísmica (EQ). Representa eventos raros. Las fuerzas inerciales actúan, pero los factores de carga para las cargas muertas pueden ser menores.
+\end{itemize}
+
+\section{PASO 1: Dimensionamiento Geométrico y Propiedades}
+
+\subsection{Predimensionamiento (Numeral 11.6.1)}
+El proceso de diseño es iterativo. Se debe iniciar proponiendo una geometría tentativa para el muro de altura $H$:
+\begin{itemize}
+    \item Ancho de la base de la zapata ($B$): Generalmente entre $0.5H$ y $0.7H$.
+    \item Longitud de la punta (Toe): Aproximadamente $0.15H$ a $0.2H$ (generalmente $B/3$).
+    \item Espesor del fuste en la corona: Mínimo normativo de 0.30 m por facilidad de vaciado.
+    \item Espesor de la zapata: Típicamente $0.1H$, usualmente entre 0.40 m y 0.80 m para proveer rigidez cortante sin necesidad de estribos.
+\end{itemize}
+
+\subsection{Materiales}
+El diseño LRFD requiere parámetros geotécnicos precisos:
+\begin{itemize}
+    \item \textbf{Concreto}: Resistencia a la compresión $f'_c$, módulo elástico $E_c = 4800 \sqrt{f'_c}$.
+    \item \textbf{Acero}: Esfuerzo de fluencia $f_y$ (típicamente 420 MPa).
+    \item \textbf{Suelo de Fundación y Relleno}: Peso específico $\gamma_s$, ángulo de fricción interna $\phi'$, cohesión $c'$, y ángulo de fricción en la interfaz suelo-muro $\delta$.
+\end{itemize}
+
+\section{PASO 2: Evaluación de Cargas y Empujes (Numeral 3)}
+
+El diseño geotécnico requiere contabilizar meticulosamente las fuerzas.
+
+\subsection{Cargas Muertas (DC y EV) [Numeral 3.5.1]}
+El peso de los componentes estructurales (DC) empuja la estructura hacia abajo. El suelo de relleno sobre el talón y la punta se clasifica como presión vertical de tierra (EV). El CCP-14 diferencia estos dos porque el suelo (EV) tiene mayor incertidumbre de densidad que el concreto (DC), y por lo tanto, diferentes factores $\gamma$ en la Tabla 3.4.1-2.
+
+\subsection{Empuje Lateral de Tierra (EH) [Numeral 3.11]}
+\subsubsection{Teoría de Coulomb (Numeral 3.11.5.3)}
+Para muros en voladizo convencionales que tienen la capacidad de rotar o ceder lateralmente, se asume un estado "Activo". El CCP-14 prefiere Coulomb sobre Rankine cuando se diseña el muro considerando la cuña de falla real, ya que incorpora la fricción muro-suelo $\delta$.
+
+El coeficiente de presión activa es:
+\[ K_a = \frac{\sin^2(\theta + \phi')}{\Gamma \cdot \sin^2\theta \cdot \sin(\theta - \delta)} \]
+Donde $\theta$ es el ángulo de la cara posterior del muro con la horizontal, y:
+\[ \Gamma = \left[ 1 + \sqrt{\frac{\sin(\phi' + \delta)\sin(\phi' - \beta)}{\sin(\theta - \delta)\sin(\theta + \beta)}} \right]^2 \]
+
+La presión varía triangularmente, y la resultante horizontal es:
+\[ P_a = \frac{1}{2} \gamma_s H^2 K_a \]
+Ubicada a una altura $y = H/3$ desde la base.
+
+\subsection{Sobrecarga Viva (LS) [Numeral 3.11.6.4]}
+Si transitan vehículos en la parte superior, se modela como una altura equivalente de suelo ($h_{eq}$). La fuerza adicional es un rectángulo de presiones:
+\[ \Delta P_{LS} = K_a \gamma_s h_{eq} H \]
+
+\section{PASO 3: Cargas Sísmicas y Dinámicas (Numeral 11.6.5)}
+
+\subsection{Coeficiente de Aceleración (Numeral 11.6.5.2)}
+El diseño requiere el coeficiente de aceleración pico efectiva ($A$ o $k_h$). En voladizo, se permite usar una fracción de la aceleración pico del suelo si el muro puede tolerar 25 a 50 mm de desplazamiento, típicamente $k_h = 0.5 \times A_s$.
+
+\subsection{Método de Mononobe-Okabe (Apéndice A11.3)}
+Extensión pseudoestática de Coulomb. Se define un ángulo inercial $\psi$:
+\[ \psi = \arctan \left( \frac{k_h}{1 - k_v} \right) \]
+
+El coeficiente sísmico activo es:
+\[ K_{AE} = \frac{\cos^2(\phi' - \theta - \psi)}{\cos \psi \cos^2\theta \cos(\delta + \theta + \psi) \left[ 1 + \sqrt{\frac{\sin(\phi' + \delta)\sin(\phi' - \beta - \psi)}{\cos(\delta + \theta + \psi)\cos(\beta - \theta)}} \right]^2} \]
+
+\subsection{Fuerzas Inerciales de la Masa Estructural (PIR y PIS) [Numeral 11.6.5.1]}
+La masa del propio muro genera una inercia destructiva.
+\[ P_{IR} = k_h \cdot W_{muro} \quad ; \quad P_{IS} = k_h \cdot W_{suelo} \]
+
+\section{PASO 4: Combinaciones LRFD y Factores}
+
+De acuerdo a la Tabla 3.4.1-1 del CCP-14, para evaluar el colapso (Resistencia I) se utilizan factores que maximizan el daño:
+\begin{itemize}
+    \item $\gamma_{EH}$ (Empuje Horizontal) = 1.50
+    \item $\gamma_{EV}$ (Peso del Suelo) = 1.00 (Minimizado, ya que reduce el volcamiento).
+    \item $\gamma_{DC}$ (Peso Concreto) = 0.90 (Minimizado).
+\end{itemize}
+
+\section{PASO 5: Revisión de Estabilidad Externa (Geotecnia)}
+
+\subsection{Excentricidad y Volcamiento (Numeral 11.6.3.3)}
+La metodología ASD calculaba el Factor de Seguridad contra Volcamiento (FS $\ge$ 2.0). El CCP-14 exige, en cambio, que la excentricidad de la resultante caiga dentro del tercio medio de la base para zapatas sobre suelo.
+\[ e = \frac{B}{2} - \frac{\sum M_{resistente} - \sum M_{vuelco}}{\sum V_{vertical}} \]
+Condición de aceptación:
+\[ e \le \frac{B}{3} \]
+
+\subsection{Deslizamiento (Numeral 11.6.3.6)}
+La resistencia al deslizamiento ocurre por fricción en la interfaz suelo-zapata.
+\[ R_\tau = \sum V \times \tan(\delta_b) \]
+Condición de diseño: $\sum H_u \le \phi_\tau R_\tau$, donde $\phi_\tau = 0.80$ (Tabla 11.5.7-1).
+
+\subsection{Capacidad Portante (Numeral 10.6.3.1 y 11.6.3.2)}
+El suelo debajo del muro no percibe una carga plana, sino un esfuerzo trapezoidal o triangular debido al momento volcador. El CCP-14 asume el "Ancho Efectivo de Meyerhof":
+\[ B' = B - 2e \]
+La presión máxima es $q_{max} = \frac{\sum V}{B'}$. Debe cumplirse que $q_{max} \le \phi_b q_n$.
+
+\section{PASO 6: Diseño Estructural de la Sección de Concreto (Sección 5)}
+
+\subsection{Esfuerzo Cortante (Numeral 5.8.3.3)}
+Para el fuste, la punta y el talón, no es práctico usar estribos. La sección depende puramente del concreto.
+La resistencia LRFD se define como:
+\[ V_c = 0.083 \beta \sqrt{f'_c} b d_v \]
+Donde $\phi_v = 0.90$. El parámetro $\beta=2.0$.
+
+\subsection{Diseño por Flexión (Numeral 5.7.3.2)}
+Cada elemento se trata como una viga ancha. La cantidad de acero principal se halla por:
+\[ M_u = \phi_f A_s f_y \left( d - \frac{A_s f_y}{1.7 f'_c b} \right) \]
+
+\subsection{Refuerzo Mínimo Especial (Numeral 5.7.3.3.2)}
+Para evitar rotura frágil inmediata tras el agrietamiento del concreto, el área provista debe exceder la necesaria para soportar el menor de:
+\begin{itemize}
+    \item $1.33 M_u$
+    \item $1.2 M_{cr}$ (donde $M_{cr} = 0.63\sqrt{f'_c} S_c$)
+\end{itemize}
+
+\subsection{Control Elástico de Fisuración (Numeral 5.7.3.4)}
+En muros expuestos a humedad, una grieta ancha oxida el acero. Se evalúa bajo "Servicio I" el estado elástico:
+\[ s_{max} = \frac{123000 \cdot \gamma_e}{\beta_s \cdot f_{ss}} - 2 d_c \]
+
+\section{PASO 7: Detallado y Construcción}
+Se deben incorporar lloraderos (weep holes) cada 3 metros, geotextil de filtración y una secuencia constructiva que prohíba compactación pesada inmediatamente contra el fuste verde.
+
+\section{PASO 8: Ejemplo de Memoria de Cálculo}
+
+Considérese un muro de 6 m de altura, con base de 4 m. Suelo de 19 kN/m$^3$, fricción de 32$^\circ$.
+El cálculo del empuje estático arroja $P_a = 114$ kN/m.
+Bajo el estado Resistencia I, el momento volcador es $376$ kN-m. El momento resistente es $942$ kN-m.
+El cálculo de la excentricidad arroja $0.50$ m, menor que el límite normativo de $1.33$ m.
+El diseño estructural exige un acero mínimo de varillas No. 7 a cada 20 cm, logrando controlar eficazmente la fisuración calculada bajo el umbral elástico.
+
+\vspace{2cm}
+\textbf{Conclusión:} El seguimiento de estos 8 pasos garantiza el cumplimiento total del código de puentes de Colombia (CCP-14), brindando a los proyectos la confiabilidad estocástica requerida internacionalmente.
+
+
+
+\newpage
+\section{ANEXO A: DERIVACIONES MATEMÁTICAS AVANZADAS}
+\subsection{Teoría de Rotura de Coulomb Expandida}
+El método de Coulomb asume un bloque de cuña rígido. La fuerza requerida para equilibrar esta cuña es producto de resolver el polígono de fuerzas que incluye el peso de la cuña, la reacción del suelo a lo largo del plano de falla y la reacción de la pared.
+Para un muro de retención, las ecuaciones resultantes son extremadamente sensibles al ángulo de fricción $\delta$.
+
+\subsection{Efecto de la Sobrecarga en la Superficie}
+Si el relleno soporta tráfico vehicular, el CCP-14 establece en la sección 3.11.6.4 la adición de una sobrecarga viva $LS$. Esta se transforma en una presión lateral constante. Las presiones debidas a cargas puntuales o lineales se evalúan usando las ecuaciones de Boussinesq o las cartas de influencia de Fadum.
+
+
+\newpage
+\section{ANEXO B: CASO DE ESTUDIO NUMÉRICO EXTENDIDO}
+A continuación se detalla una memoria de cálculo iterativa paso a paso.
+\subsection{Verificación de Corte en la Punta (Toe)}
+La punta soporta presiones inmensas de la reacción del suelo, que empujan la losa de la zapata hacia arriba. Cortando la sección a lo largo de la cara del fuste, calculamos la cortante última $V_u$. El diagrama de cuerpo libre debe deducir el peso del suelo EV que se encuentra encima de la punta.
+
+\subsection{Diseño del Dentellón (Shear Key)}
+Cuando el factor de resistencia $\phi_\tau = 0.8$ no es suficiente para compensar la alta fuerza sísmica, se debe proyectar un bloque de concreto bajo la zapata. Este bloque movilizará empuje pasivo frontal.
+
+
+\newpage
+\section{ANEXO C: REFERENCIAS NORMATIVAS CCP-14 (TABULACIÓN)}
+- Tabla 3.4.1-1: Combinaciones de Carga.
+- Tabla 3.4.1-2: Factores de Carga Permanentes $\gamma_p$.
+- Artículo 5.7.3.3.2: Refuerzo a flexión mínimo.
+- Artículo 11.6.3.2: Capacidad portante en muros.
+- Apéndice A11: Ecuaciones sísmicas de Mononobe-Okabe.
+
+
+
+\newpage
+\section{ANEXO D: CASO DE ESTUDIO 2 - MURO CON SOBRECARGA SÍSMICA EXTREMA}
+En este escenario se evalúa un muro de 8 metros de altura sujeto a una aceleración de $k_h = 0.3g$. 
+El momento de volcamiento bajo Evento Extremo I supera sustancialmente el de Resistencia I. La norma permite que en Evento Extremo la excentricidad alcance $e \le 0.66B$, reconociendo que el daño parcial es aceptable siempre que no ocurra un colapso catastrófico.
+
+\subsection{Verificación de Fisuración}
+Es notable mencionar que para Evento Extremo I y Resistencia I, NO se realiza revisión de fisuración. El control de agrietamiento es puramente regido por el estado de Servicio I, ya que las fisuras inducidas por sismo o sobrecargas extremas son consideradas como "esperadas" dentro de la filosofía de diseño por capacidad.
+
+
+
+\newpage
+\section{ANEXO E: INTERACCIÓN SUELO-ESTRUCTURA Y RIGIDEZ}
+El diseño tradicional asume que el muro es rígido y el suelo proporciona un empuje constante. Sin embargo, estudios paramétricos modernos muestran que la deflexión del fuste altera la distribución de presiones.
+\subsection{Rotación de la Base}
+Para movilizar el estado activo, el muro debe rotar. Si la zapata está sobre roca dura, la rotación puede ser insuficiente, forzando un diseño bajo presión de reposo ($K_0$), que incrementa dramáticamente $M_u$.
+
+
+\newpage
+\section{ANEXO F: TABLAS DE CUANTÍAS Y ESPACIAMIENTOS NORMATIVOS}
+Para uso rápido del diseñador:
+\begin{itemize}
+    \item $f'_c = 28$ MPa, $f_y = 420$ MPa. Cuantía mínima absoluta ronda $\rho \approx 0.0033$.
+    \item Separación máxima para muros típicos clase 2 expuestos a la intemperie: 25 a 30 cm para varillas No. 6 o 7.
+\end{itemize}
+
+
+\newpage
+\section{ANEXO G: DETALLADO DE NODOS DE LA ZAPATA}
+\subsection{Anclaje de Refuerzo del Fuste}
+Las varillas del fuste deben anclarse en la zapata con ganchos estándar de 90 grados. La longitud de desarrollo $l_{dh}$ debe calcularse según el Numeral 5.11.2.4.1 del CCP-14. 
+El espesor de la zapata (ej. 600 mm) se dimensiona a menudo para acomodar este gancho sin interferir con la parrilla de fondo del talón.
+
+\subsection{Traslapos del Refuerzo Principal}
+Es práctica común no traslapar el acero principal en la zona de máximo momento (la base del fuste). Si se requiere, el CCP-14 exige usar empalmes mecánicos (conectores tipo BarGrip) o empalmes soldados (si la varilla es ASTM A706), en lugar de traslapos por traslape simple clase B.
+
+
+\newpage
+\section{ANEXO H: TABLAS INTEGRADAS DE FACTORES DE CARGA Y COMBINACIONES (AASHTO LRFD CCP-14)}
+
+La aplicación rigurosa de la metodología LRFD requiere el uso de factores de carga permanentes y transitorios. A continuación se provee la tabulación extensa de estos parámetros, los cuales son el núcleo matemático del motor de cálculo.
+
+\subsection{H.1 Factores de Cargas Permanentes ($\gamma_p$)}
+El diseñador debe permutar el valor máximo y el valor mínimo de cada carga para obtener la combinación más desfavorable.
+\begin{itemize}
+    \item \textbf{DC (Peso propio de componentes estructurales)}:
+    \begin{itemize}
+        \item Máximo: 1.25
+        \item Mínimo: 0.90
+    \end{itemize}
+    \item \textbf{DW (Peso de superficies de rodamiento y servicios públicos)}:
+    \begin{itemize}
+        \item Máximo: 1.50
+        \item Mínimo: 0.65
+    \end{itemize}
+    \item \textbf{EV (Presión vertical de tierra)}:
+    \begin{itemize}
+        \item Retención general (Máximo): 1.35
+        \item Retención general (Mínimo): 1.00
+    \end{itemize}
+    \item \textbf{EH (Empuje horizontal de tierra)}:
+    \begin{itemize}
+        \item Activo (Máximo): 1.50
+        \item Activo (Mínimo): 0.90
+        \item Reposo (Máximo): 1.35
+        \item Reposo (Mínimo): 0.90
+    \end{itemize}
+    \item \textbf{ES (Sobrecarga de tierra)}:
+    \begin{itemize}
+        \item Máximo: 1.50
+        \item Mínimo: 0.75
+    \end{itemize}
+\end{itemize}
+
+\subsection{H.2 Combinaciones de Cargas}
+El diseño completo requiere verificar:
+\begin{itemize}
+    \item \textbf{Resistencia I}: Combinación básica de cargas vehiculares normales sin viento. Es la combinación principal para dimensionar el fuste a flexión y el talón.
+    \item \textbf{Resistencia II}: Uso de vehículos de permiso especial. Si el muro sostiene una vía donde se autorizan vehículos sobre-dimensionados.
+    \item \textbf{Resistencia III}: Muro expuesto a vientos superiores a 90 km/h sin sobrecarga viva.
+    \item \textbf{Resistencia IV}: Relación inusualmente alta de carga muerta a carga viva.
+    \item \textbf{Resistencia V}: Combinación de carga vehicular normal con viento de 90 km/h.
+    \item \textbf{Evento Extremo I}: Sismos (Método de Mononobe-Okabe y Fuerzas Inerciales). El factor de carga viva suele reducirse a 0.5.
+    \item \textbf{Evento Extremo II}: Cargas de colisión de vehículos pesados contra el parapeto superior del muro.
+    \item \textbf{Servicio I}: Asentamientos, rotaciones y control de agrietamiento en el concreto. $\gamma = 1.0$ para todas las cargas.
+\end{itemize}
+
+\newpage
+\section{ANEXO I: COMPORTAMIENTO FÍSICO DEL SUELO DE RELLENO Y DRENAJE}
+
+\subsection{I.1 Propiedades del Suelo de Relleno}
+El diseño asume un suelo de relleno granular, no cohesivo y de libre drenaje. Las propiedades comunes de los materiales de afirmado y subbase utilizados como relleno detrás del fuste suelen oscilar en los siguientes rangos:
+\begin{itemize}
+    \item Grava arenosa bien gradada (GW): Peso unitario 20-22 kN/m$^3$, Ángulo de fricción $35^\circ-40^\circ$.
+    \item Arena limosa (SM): Peso unitario 18-20 kN/m$^3$, Ángulo de fricción $30^\circ-34^\circ$.
+    \item Arcilla de alta plasticidad (CH): ¡Estrictamente prohibida como relleno estructural! Genera presiones de hinchamiento incalculables.
+\end{itemize}
+
+\subsection{I.2 Impacto del Agua y Drenajes}
+Si el agua satura el relleno, ocurren dos fenómenos catastróficos que aumentan exponencialmente la presión lateral sobre el muro:
+\begin{enumerate}
+    \item La densidad efectiva del suelo cambia. Bajo el nivel freático, se usa la densidad sumergida ($\gamma' = \gamma_{sat} - \gamma_w$).
+    \item Se adiciona una presión hidrostática pura de distribución triangular ($\gamma_w \cdot z$).
+\end{enumerate}
+
+Para un relleno con $\gamma = 20$ kN/m$^3$ y $K_a = 0.33$, la presión lateral en la base (a 6 m de profundidad) es $0.33 \times 20 \times 6 = 39.6$ kPa.
+Si el suelo se satura (asumiendo $\gamma_{sat} = 21$ kN/m$^3$), la presión efectiva del suelo es $0.33 \times (21 - 9.81) \times 6 = 22.1$ kPa. A esto se le suma la presión hidrostática del agua libre: $9.81 \times 6 = 58.8$ kPa. La presión total en la base es $22.1 + 58.8 = 80.9$ kPa. ¡La presión se ha duplicado por la falta de drenaje!
+
+Por lo tanto, la provisión de un colchón de grava envuelto en geotextil y un sistema de lloraderos (tuberías colectoras) es no solo una buena práctica constructiva, sino una exigencia obligatoria para que la validez matemática de este documento se sostenga.
+
+\newpage
+\section{ANEXO J: FUNDAMENTOS DEL CONTROL DE FISURACIÓN Y MECÁNICA DE SECCIÓN}
+
+\subsection{J.1 La Sección Fisurada Elástica}
+El análisis elástico del concreto reforzado asume que la zona a tensión del concreto no aporta resistencia y toda la fuerza de tensión recae en la barra de acero.
+
+La relación modular se define como la razón de la rigidez del acero a la rigidez del concreto:
+\[ n = \frac{E_s}{E_c} \]
+Donde $E_s = 200,000$ MPa y $E_c = 4800 \sqrt{f'_c}$ (en MPa).
+
+Para una sección rectangular con refuerzo únicamente en tracción (cuantía $\rho$), la profundidad del eje neutro elástico (designada como $k \cdot d$) se encuentra resolviendo el equilibrio de momentos de área:
+\[ k = \sqrt{2\rho n + (\rho n)^2} - \rho n \]
+
+El brazo de palanca elástico (la distancia entre la resultante de compresión y tensión) se designa como $j \cdot d$:
+\[ j = 1 - \frac{k}{3} \]
+
+Bajo un momento flector no mayorado $M_{serv}$, el esfuerzo de tensión en el acero se calcula rápidamente como:
+\[ f_{ss} = \frac{M_{serv}}{A_s \cdot j \cdot d} \]
+
+Este es el valor crítico requerido para la ecuación de control de ancho de grietas del CCP-14.
+
+\subsection{J.2 Límite de Fluencia y Comportamiento Dúctil}
+Es de vital importancia garantizar que el muro sea subreforzado. Si se coloca una cantidad de acero excesiva, el concreto se aplastará frágilmente antes de que el acero empiece a fluir. Esta falla explosiva no avisa. Por esta razón, el código también restringe la cuantía máxima o exige verificar que la deformación unitaria neta de tracción en el acero ($\epsilon_t$) exceda de 0.005 para garantizar una sección "controlada por tracción", usando un factor $\phi=0.90$. 
+
+En muros de contención convencionales, debido al enorme tamaño de la sección (fuste grueso), el diseño usualmente se ubica de forma segura y natural en el rango subreforzado.
+
+
+\end{document}
+
