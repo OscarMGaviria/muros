@@ -51,24 +51,41 @@ class LSSurchargeCalculator:
         else:
             raise ValueError(f"Unknown orientation: {orientation}")
 
-    def calculate_ls_load(self, wall: Wall, k_a: float, traffic_orientation: str = "PARALLEL", distance_from_back_mm: float = 300.0) -> List[GenericLoad]:
-        h_m = wall.geometry.total_height.to("m").magnitude
-        h_mm = h_m * 1000.0
-        
-        h_eq_mm = self.interpolate_heq(h_mm, traffic_orientation, distance_from_back_mm)
-        h_eq_m = h_eq_mm / 1000.0
-        
-        gamma_s = wall.backfill.unit_weight.to("kN/m**3").magnitude
-        delta_p = k_a * gamma_s * h_eq_m
-        p_ls = delta_p * h_m
+    def calculate_ls_load(self, wall: Wall, k_a: float):
+        """
+        Calcula la sobrecarga viva vehicular (LS) según CCP-14 / AASHTO LRFD 3.11.6.4.
+        La altura equivalente de suelo (heq) se interpola de la Tabla 3.11.6.4-1/2
+        según la altura del muro y la orientación respecto al tráfico. La presión
+        de sobrecarga se obtiene como qs = heq * gamma_relleno, y el empuje LS
+        resultante es puramente horizontal (no se descompone por fricción muro-suelo):
+        LS = qs * K_a * H_total
+        Retorna (loads, heq_m, qs_kPa).
+        """
+        orientation = wall.traffic.orientation if wall.traffic else "PARALLEL"
+        distance_mm = wall.traffic.distance_from_back.to('mm').magnitude if wall.traffic else 0.0
+
+        h_m = wall.geometry.stem_height.to('m').magnitude + wall.geometry.footing_thickness.to('m').magnitude
+        height_mm = h_m * 1000.0
+
+        heq_mm = self.interpolate_heq(height_mm, orientation, distance_mm)
+        heq_m = heq_mm / 1000.0
+
+        gamma_fill = wall.backfill.unit_weight.to('kN/m**3').magnitude
+        qs_kPa = heq_m * gamma_fill
+
+        if qs_kPa <= 0:
+            return [], heq_m, qs_kPa
+
+        # LS = qs * H_total * K_a (fuerza horizontal pura, sin componente vertical)
+        p_ls = qs_kPa * h_m * k_a
         y_app = h_m / 2.0
-        
+
         load = GenericLoad(
-            name="Traffic Surcharge (LS)",
-            type=LoadType.LS,
+            name="Sobrecarga Vehicular (LS)",
+            load_type=LoadType.LS,
             force_x=Q_(p_ls, "kN/m"),
-            force_y=Q_(0, "kN/m"),
-            application_y=Q_(y_app, "m"),
-            application_x=wall.geometry.base_width
+            force_y=Q_(0.0, "kN/m"),
+            y_application=Q_(y_app, "m"),
+            x_application=wall.geometry.toe_length + wall.geometry.stem_thickness_base
         )
-        return [load]
+        return [load], heq_m, qs_kPa

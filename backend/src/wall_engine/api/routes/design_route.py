@@ -1,17 +1,15 @@
 from fastapi import APIRouter, HTTPException
 import uuid
-from wall_engine.api.schemas.wall_schema import WallDesignRequest
+from wall_engine.api.schemas.wall_schema import WallDesignRequest, TrafficSchema
 from wall_engine.units.registry import Q_
 from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.domain.materials.steel import ReinforcementSteel
 from wall_engine.domain.wall.entities import WallMaterials, Wall
 from wall_engine.domain.soil.entities import Soil
+from wall_engine.domain.loads.entities import TrafficSurcharge
 from wall_engine.seismic.parameters import SeismicParameters
 from wall_engine.codes.ccp14.orchestrator import CCP14Orchestrator
-
-# Temporarily patch domain entities loads if TrafficSurcharge is not there
-# Assume it might fail if we don't handle traffic properly, we'll map it to None for now if not implemented.
 
 router = APIRouter()
 
@@ -67,7 +65,13 @@ def design_wall_ccp14(request: WallDesignRequest):
             kv=request.seismic.kv if request.seismic else 0.0,
             soil_factor=None, seismic_zone=None
         )
-        
+
+        traffic_req = request.traffic or TrafficSchema()
+        traffic = TrafficSurcharge(
+            orientation=traffic_req.orientation,
+            distance_from_back=Q_(traffic_req.distance_from_back_m, "m")
+        )
+
         wall = Wall(
             id=uuid.uuid4(),
             name=request.name,
@@ -77,7 +81,8 @@ def design_wall_ccp14(request: WallDesignRequest):
             foundation_soil=found_soil,
             groundwater=None,
             surcharges=[],
-            seismic=seis
+            seismic=seis,
+            traffic=traffic
         )
         
         # 2. Run Engine
@@ -111,6 +116,14 @@ def design_wall_ccp14(request: WallDesignRequest):
                         "q_max": float(report.stability_results["Strength I"].q_toe) if "Strength I" in report.stability_results else 0.0,
                         "q_min": float(report.stability_results["Strength I"].q_heel) if "Strength I" in report.stability_results else 0.0
                     }
+                },
+                "earth_pressure": {
+                    "ka": report.earth_pressure.coefficient_active,
+                    "kp": report.earth_pressure.coefficient_passive
+                },
+                "traffic_surcharge": {
+                    "heq_m": report.traffic_heq_m,
+                    "qs_kPa": report.traffic_qs_kPa
                 },
                 "structural": {
                     "reinforcement": {

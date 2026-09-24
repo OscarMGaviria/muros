@@ -16,7 +16,7 @@ class GeometrySchema(BaseModel):
     key_width_m: Optional[float] = None
     backfill_slope_deg: float = Field(0.0, ge=0, lt=90)
     stem_batter_deg: float = Field(0.0, ge=0)
-    back_face_angle_deg: float = Field(90.0, gt=0, le=90)
+    back_face_angle_deg: float = Field(90.0, gt=0, le=180)
 
 # --- Materials ---
 class ConcreteSchema(BaseModel):
@@ -49,6 +49,7 @@ class TrafficSchema(BaseModel):
 class SeismicSchema(BaseModel):
     kh: float = Field(0.0, ge=0)
     kv: float = Field(0.0, ge=0)
+    q_surcharge_kPa: float = Field(0.0, ge=0)
 
 # --- Main Wall ---
 class WallDesignRequest(BaseModel):

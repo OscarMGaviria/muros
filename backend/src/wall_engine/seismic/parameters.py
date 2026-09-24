@@ -6,6 +6,6 @@ class SeismicParameters:
     ag: Optional[float]
     kh: float
     kv: float
-
-    soil_factor: Optional[float]
-    seismic_zone: Optional[str]
+    q_surcharge: float = 0.0
+    soil_factor: Optional[float] = None
+    seismic_zone: Optional[str] = None

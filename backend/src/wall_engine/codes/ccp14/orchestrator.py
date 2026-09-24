@@ -29,7 +29,7 @@ class CCP14Orchestrator:
 
     def design_wall(self, wall: Wall) -> WallDesignReport:
         # 1. Generar todas las cargas genéricas
-        all_loads = self._generate_all_loads(wall)
+        all_loads, ep_res, traffic_heq_m, traffic_qs_kPa = self._generate_all_loads(wall)
         
         # 2. Generar combinaciones y permutaciones
         limit_states = CCP14Combinations.get_all()
@@ -99,10 +99,13 @@ class CCP14Orchestrator:
             stability_results=stability_res,
             bearing_results=bearing_res,
             structural_design=reinf,
-            status="DONE" # TODO: Lógica de validación
+            status="DONE", # TODO: Lógica de validación
+            earth_pressure=ep_res,
+            traffic_heq_m=traffic_heq_m,
+            traffic_qs_kPa=traffic_qs_kPa
         )
         
-    def _generate_all_loads(self, wall: Wall) -> List[GenericLoad]:
+    def _generate_all_loads(self, wall: Wall):
         loads = []
         # Pesos
         c_blocks = self.weight_calc.calculate_concrete_blocks(wall)
@@ -139,20 +142,18 @@ class CCP14Orchestrator:
         eq_inerts = self.weight_calc.calculate_seismic_inertial_loads(wall)
         loads.extend(eq_inerts)
         
-        # Sobrecarga LS (Traffic Surcharge)
-        if wall.seismic and getattr(wall.seismic, 'q_surcharge', 0) > 0:
-            pass
-            
-        # The correct way to call the existing method is:
+        # Sobrecarga LS (Traffic Surcharge) - AASHTO Tabla 3.11.6.4
         if hasattr(ep_res, 'coefficient_active'):
             k_a = ep_res.coefficient_active
         else:
             k_a = 0.3 # fallback
-            
+
+        traffic_heq_m = 0.0
+        traffic_qs_kPa = 0.0
         try:
-            ls_loads = self.ls_calc.calculate_ls_load(wall, k_a=k_a)
+            ls_loads, traffic_heq_m, traffic_qs_kPa = self.ls_calc.calculate_ls_load(wall, k_a=k_a)
             loads.extend(ls_loads)
         except Exception as e:
             print("Error computing LS: ", e)
-        
-        return loads
+
+        return loads, ep_res, traffic_heq_m, traffic_qs_kPa

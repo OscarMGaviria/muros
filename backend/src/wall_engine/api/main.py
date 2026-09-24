@@ -22,3 +22,7 @@ app.include_router(design_route.router, prefix="/api/v1/design", tags=["Design"]
 @app.get("/")
 def root():
     return {"message": "Welcome to the CCP-14 Wall Engine API. Go to /docs for Swagger UI."}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

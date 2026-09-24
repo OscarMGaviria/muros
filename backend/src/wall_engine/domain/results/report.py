@@ -6,6 +6,7 @@ from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.domain.results.bearing import BearingCapacityResult
 from wall_engine.domain.results.reinforcement import WallReinforcementResult
 from wall_engine.domain.loads.combinations import FactoredResult, GenericLoad
+from wall_engine.domain.results.earth_pressure import EarthPressureResult
 
 @dataclass
 class WallDesignReport:
@@ -24,4 +25,7 @@ class WallDesignReport:
     structural_design: WallReinforcementResult
     
     # "PASS", "FAIL_STABILITY", "FAIL_BEARING", "FAIL_STRUCTURAL"
-    status: str 
+    status: str
+    earth_pressure: EarthPressureResult = None
+    traffic_heq_m: float = 0.0
+    traffic_qs_kPa: float = 0.0
