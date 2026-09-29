@@ -168,6 +168,17 @@ const applyBearingCapacity = () => {
             <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Acero fy</label><div class="flex shadow-sm"><input type="number" step="10" v-model.number="store.params.fy" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">MPa</span></div></div>
           </div>
         </div>
+
+        <div class="bg-slate-50 p-3 rounded-md border border-slate-200">
+          <h3 class="text-xs font-bold text-slate-800 mb-2">Criterios de Diseño</h3>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" v-model="store.params.ignore_heel_reaction" @change="store.calculate" class="mt-0.5 accent-blue-600" />
+            <span class="text-[10px] text-slate-600 leading-snug">
+              <span class="font-bold block">Ignorar reacción del suelo bajo el talón</span>
+              El talón se diseña solo con su peso propio y el suelo encima (conservador, criterio CDOT). Desmarcado, se descuenta la presión de contacto.
+            </span>
+          </label>
+        </div>
       </template>
 
       <!-- TAB: SOILS -->

@@ -92,7 +92,7 @@ class CCP14Orchestrator:
                     stem_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover))
                 footing_candidates.append(self.foot_calc.calculate(
                     all_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover, stab,
-                    wall.foundation_soil))
+                    wall.foundation_soil, wall.options.ignore_heel_soil_reaction))
             
             stem_forces_dict[ls_name] = _envelope_stem(stem_candidates)
             footing_forces_dict[ls_name] = _envelope_footing(footing_candidates)

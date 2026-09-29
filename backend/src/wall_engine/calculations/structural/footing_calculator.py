@@ -24,7 +24,8 @@ class FootingCalculator:
         concrete: Concrete,
         cover: Length,
         stability: StabilityResult,
-        foundation_soil: Soil
+        foundation_soil: Soil,
+        ignore_heel_reaction: bool = False
     ) -> FootingDesignResult:
         
         toe_len = geometry.toe_length.to("m").magnitude
@@ -99,13 +100,15 @@ class FootingCalculator:
                     arm = x_app - x_heel_cut
                     m_down_heel += fy_factored * arm
                     
-        # Presión hacia arriba bajo el talón
-        q_heel_cut = get_q_at_x(x_heel_cut)
-        v_up_heel = (q_heel_cut + q_heel) / 2.0 * heel_len
+        # Presión hacia arriba bajo el talón (se omite si el usuario elige
+        # diseñar el talón solo con su peso propio y el suelo encima)
+        q_heel_cut = 0.0 if ignore_heel_reaction else get_q_at_x(x_heel_cut)
+        q_heel_end = 0.0 if ignore_heel_reaction else q_heel
+        v_up_heel = (q_heel_cut + q_heel_end) / 2.0 * heel_len
         
-        if (q_heel_cut + q_heel) > 0:
+        if (q_heel_cut + q_heel_end) > 0:
             # Distancia desde x_heel_cut
-            cx_soil_heel = (heel_len / 3.0) * ((2 * q_heel + q_heel_cut) / (q_heel_cut + q_heel))
+            cx_soil_heel = (heel_len / 3.0) * ((2 * q_heel_end + q_heel_cut) / (q_heel_cut + q_heel_end))
         else:
             cx_soil_heel = heel_len / 2.0
             

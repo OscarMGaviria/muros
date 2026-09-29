@@ -40,7 +40,10 @@ export const useWallStore = defineStore('wall', {
 
       // Sobrecarga vehicular (LS) - AASHTO Tabla 3.11.6.4
       traffic_orientation: 'PARALLEL', // 'PARALLEL' o 'PERPENDICULAR'
-      traffic_distance: 0.0 // Distancia del eje de carga al respaldo del muro (m)
+      traffic_distance: 0.0, // Distancia del eje de carga al respaldo del muro (m)
+
+      // Criterios de diseño
+      ignore_heel_reaction: false // Diseñar el talón sin la reacción del suelo (criterio CDOT)
     },
     results: null,
     isLoading: false,
@@ -223,6 +226,9 @@ export const useWallStore = defineStore('wall', {
           seismic: {
             kh: this.params.kh,
             kv: 0.0
+          },
+          design_options: {
+            ignore_heel_soil_reaction: this.params.ignore_heel_reaction
           }
         }
         

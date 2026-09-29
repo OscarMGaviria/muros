@@ -5,7 +5,7 @@ from wall_engine.units.registry import Q_
 from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.domain.materials.steel import ReinforcementSteel
-from wall_engine.domain.wall.entities import WallMaterials, Wall
+from wall_engine.domain.wall.entities import WallMaterials, Wall, DesignOptions
 from wall_engine.domain.soil.entities import Soil
 from wall_engine.domain.loads.entities import TrafficSurcharge
 from wall_engine.seismic.parameters import SeismicParameters
@@ -84,7 +84,10 @@ def design_wall_ccp14(request: WallDesignRequest):
             groundwater=None,
             surcharges=[],
             seismic=seis,
-            traffic=traffic
+            traffic=traffic,
+            options=DesignOptions(
+                ignore_heel_soil_reaction=request.design_options.ignore_heel_soil_reaction
+            )
         )
         
         # 2. Run Engine

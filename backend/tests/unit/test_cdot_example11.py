@@ -181,3 +181,24 @@ def test_bearing_check_with_geotechnical_q_n():
 def test_strength_iv_is_evaluated(report):
     assert "Strength IV" in report.stability_results
     assert report.governing_loads["Strength IV"].factors_used[LoadType.DC] in (1.50, 0.90)
+
+
+def test_heel_design_option_ignores_soil_reaction():
+    """
+    CDOT 2.2: talón diseñado con su peso y el suelo encima, sin reacción del suelo.
+    Strength IV: Vu = 16.03 kip/ft, Mu = 44.07 kip-ft/ft; Service I: 32.33 kip-ft/ft.
+    El motor suma además la componente vertical del empuje en el extremo del
+    talón (EHV = 1.68 kip/ft a 5.5 ft), que el ejemplo no carga sobre el talón.
+    """
+    from wall_engine.domain.wall.entities import DesignOptions
+    with_reaction = CCP14Orchestrator().design_wall(make_cdot_wall()).structural_design.heel
+
+    wall = make_cdot_wall()
+    wall.options = DesignOptions(ignore_heel_soil_reaction=True)
+    heel = CCP14Orchestrator().design_wall(wall).structural_design.heel
+
+    ehv, arm = 1.68, 5.5
+    assert heel.V_u.to("kN/m").magnitude == pytest.approx(kip_ft(16.03 + 1.5 * ehv), rel=0.01)
+    assert heel.M_u.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(44.07 + 1.5 * ehv * arm), rel=0.01)
+    assert heel.M_serv.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(32.33 + ehv * arm), rel=0.01)
+    assert heel.M_u > with_reaction.M_u

@@ -55,6 +55,11 @@ class SeismicSchema(BaseModel):
     kv: float = Field(0.0, ge=0)
     q_surcharge_kPa: float = Field(0.0, ge=0)
 
+# --- Design options ---
+class DesignOptionsSchema(BaseModel):
+    ignore_heel_soil_reaction: bool = Field(
+        False, description="Diseñar el talón sin descontar la reacción del suelo (conservador, criterio CDOT)")
+
 # --- Main Wall ---
 class WallDesignRequest(BaseModel):
     name: str = "Muro de Prueba"
@@ -64,3 +69,4 @@ class WallDesignRequest(BaseModel):
     foundation_soil: SoilSchema
     traffic: Optional[TrafficSchema] = None
     seismic: Optional[SeismicSchema] = None
+    design_options: DesignOptionsSchema = DesignOptionsSchema()

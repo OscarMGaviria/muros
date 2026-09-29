@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 from uuid import UUID
 
@@ -17,6 +17,12 @@ class WallMaterials:
     reinforcement: ReinforcementSteel
     cover: Length
 
+@dataclass(frozen=True)
+class DesignOptions:
+    # Diseño del talón ignorando la reacción del suelo bajo él (conservador,
+    # criterio del CDOT BDM Ej. 11, 2.2). Si es False se descuenta la reacción.
+    ignore_heel_soil_reaction: bool = False
+
 @dataclass
 class Wall:
     id: UUID
@@ -29,3 +35,4 @@ class Wall:
     surcharges: List[Surcharge]
     seismic: Optional[SeismicParameters]
     traffic: Optional[TrafficSurcharge] = None
+    options: DesignOptions = field(default_factory=DesignOptions)
