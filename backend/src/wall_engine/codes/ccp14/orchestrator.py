@@ -15,6 +15,7 @@ from wall_engine.calculations.structural.stem_calculator import StemCalculator
 from wall_engine.calculations.structural.footing_calculator import FootingCalculator
 from wall_engine.calculations.structural.reinforcement_calculator import ReinforcementCalculator
 from wall_engine.codes.ccp14.combinations import CCP14Combinations
+from wall_engine.calculations.water.calculator import WaterPressureCalculator
 from wall_engine.domain.results.stem_design import StemForcesResult
 from wall_engine.domain.results.footing_design import FootingDesignResult, FootingSectionForces
 
@@ -29,15 +30,33 @@ class CCP14Orchestrator:
         self.stem_calc = StemCalculator()
         self.foot_calc = FootingCalculator()
         self.reinf_calc = ReinforcementCalculator()
+        self.water_calc = WaterPressureCalculator()
 
     def design_wall(self, wall: Wall) -> WallDesignReport:
         # 1. Generar todas las cargas genéricas
-        all_loads, ep_res, traffic_heq_m, traffic_qs_kPa = self._generate_all_loads(wall)
+        all_loads, ep_res, traffic_heq_m, traffic_qs_kPa, water_res = self._generate_all_loads(wall)
         # Cargas que actúan sobre el fuste (presiones evaluadas con la altura del fuste)
         stem_loads = self._generate_stem_loads(wall, all_loads, ep_res.coefficient_active, traffic_qs_kPa)
+        warnings = list(ep_res.warnings)
+        uplift_at_heel = water_res.uplift_pressure_at_heel.to("kPa").magnitude
         
-        # 2. Generar combinaciones y permutaciones
-        limit_states = CCP14Combinations.get_all()
+        # 2. Generar combinaciones y permutaciones. Evento Extremo I se evalúa
+        # solo con sismo, en los dos casos de no concurrencia de 11.6.5.1.
+        seismic = wall.seismic
+        has_seismic = seismic is not None and seismic.kh > 0
+        gamma_eq = seismic.gamma_eq if seismic else 0.0
+        dpae = ep_res.seismic_active_force.magnitude.to("kN/m").magnitude if ep_res.seismic_active_force else 0.0
+        limit_states = CCP14Combinations.get_all(
+            seismic=has_seismic,
+            pa_static=ep_res.soil_active_force.magnitude.to("kN/m").magnitude,
+            dpae=dpae,
+            gamma_eq=gamma_eq
+        )
+        if has_seismic and (wall.geometry.stem_height + wall.geometry.footing_thickness).to("m").magnitude > 18.0:
+            warnings.append(
+                "Muro de más de 18 m: el análisis pseudoestático no es suficiente; se requiere "
+                "un análisis dinámico de interacción suelo-estructura (CCP-14 11.6.5.2.2)."
+            )
         governing_loads = {}
         stability_res = {}
         bearing_res = {}
@@ -56,7 +75,7 @@ class CCP14Orchestrator:
             #  - Deslizamiento: la mayor relación demanda/capacidad
             #  - Presión de contacto: la mayor presión (verticales máximas)
             evaluated = [
-                (perm, self.stab_calc.calculate(perm, wall.geometry, wall.foundation_soil))
+                (perm, self.stab_calc.calculate(perm, wall.geometry, wall.foundation_soil, gamma_eq=gamma_eq))
                 for perm in perms
             ]
             ecc_perm, ecc_stab = max(evaluated, key=lambda ps: abs(ps[1].eccentricity.to("m").magnitude))
@@ -92,14 +111,15 @@ class CCP14Orchestrator:
                     stem_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover))
                 footing_candidates.append(self.foot_calc.calculate(
                     all_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover, stab,
-                    wall.foundation_soil, wall.options.ignore_heel_soil_reaction))
+                    wall.foundation_soil, wall.options.ignore_heel_soil_reaction, uplift_at_heel))
             
             stem_forces_dict[ls_name] = _envelope_stem(stem_candidates)
             footing_forces_dict[ls_name] = _envelope_footing(footing_candidates)
             
         # 6. Envolvente de diseño: estados de resistencia y evento extremo.
         # Service I provee los momentos para control de fisuración.
-        design_states = [n for n in ("Strength I", "Strength IV", "Extreme Event I") if n in stem_forces_dict]
+        design_states = [n for n in ("Strength I", "Strength IV", "Extreme Event I-a", "Extreme Event I-b")
+                         if n in stem_forces_dict]
         design_stem = _envelope_stem([stem_forces_dict[n] for n in design_states])
         design_foot = _envelope_footing([footing_forces_dict[n] for n in design_states])
         service_stem = stem_forces_dict.get("Service I")
@@ -134,7 +154,9 @@ class CCP14Orchestrator:
             status="DONE", # TODO: Lógica de validación
             earth_pressure=ep_res,
             traffic_heq_m=traffic_heq_m,
-            traffic_qs_kPa=traffic_qs_kPa
+            traffic_qs_kPa=traffic_qs_kPa,
+            water=water_res,
+            warnings=warnings
         )
         
     def _generate_all_loads(self, wall: Wall):
@@ -148,7 +170,7 @@ class CCP14Orchestrator:
             loads.append(GenericLoad(b.name, LoadType.EV, Q_(0, "kN/m"), b.weight, b.x_centroid, b.y_centroid))
             
         # Empujes EH
-        ep_res = self.ep_calc.calculate(wall.backfill, wall.geometry, wall.seismic)
+        ep_res = self.ep_calc.calculate(wall.backfill, wall.geometry, wall.seismic, groundwater=wall.groundwater)
         # El empuje actúa sobre el plano virtual vertical en el extremo del talón
         # (x = B), con altura total medida desde la base de la zapata. Su componente
         # vertical va hacia abajo (force_y > 0) y es estabilizante.
@@ -174,6 +196,17 @@ class CCP14Orchestrator:
                 y_application=peq.application_height
             ))
             
+        # Presión hidrodinámica (relleno de drenaje libre bajo el nivel freático)
+        if ep_res.hydrodynamic_force and ep_res.hydrodynamic_force.magnitude.magnitude > 0:
+            hd = ep_res.hydrodynamic_force
+            loads.append(GenericLoad(
+                "Presión Hidrodinámica (Westergaard)", LoadType.EQ_E,
+                force_x=hd.magnitude,
+                force_y=Q_(0, "kN/m"),
+                x_application=x_virtual_back,
+                y_application=hd.application_height
+            ))
+            
         # Sismo EQ (Inercial)
         eq_inerts = self.weight_calc.calculate_seismic_inertial_loads(wall)
         loads.extend(eq_inerts)
@@ -192,7 +225,25 @@ class CCP14Orchestrator:
         except Exception as e:
             print("Error computing LS: ", e)
 
-        return loads, ep_res, traffic_heq_m, traffic_qs_kPa
+        # Agua (WA): empuje hidrostático en el plano virtual y subpresión
+        water_res = self.water_calc.calculate(wall)
+        if water_res.horizontal_force.magnitude.magnitude > 0:
+            loads.append(GenericLoad(
+                "Empuje Hidrostático", LoadType.WA,
+                force_x=water_res.horizontal_force.magnitude,
+                force_y=Q_(0, "kN/m"),
+                x_application=x_virtual_back,
+                y_application=water_res.horizontal_force.application_height
+            ))
+            loads.append(GenericLoad(
+                "Subpresión", LoadType.WA,
+                force_x=Q_(0, "kN/m"),
+                force_y=water_res.uplift.magnitude,
+                x_application=water_res.uplift.application_height,
+                y_application=Q_(0, "m")
+            ))
+
+        return loads, ep_res, traffic_heq_m, traffic_qs_kPa, water_res
 
     def _generate_stem_loads(self, wall: Wall, all_loads: List[GenericLoad], k_a: float, traffic_qs_kPa: float) -> List[GenericLoad]:
         """
@@ -232,6 +283,28 @@ class CCP14Orchestrator:
                 x_application=x_back,
                 y_application=t_f + peq.application_height
             ))
+        
+        hd = ep_stem.hydrodynamic_force
+        if hd and hd.magnitude.magnitude > 0:
+            loads.append(GenericLoad(
+                "Presión Hidrodinámica sobre Fuste", LoadType.EQ_E,
+                force_x=hd.magnitude,
+                force_y=Q_(0, "kN/m"),
+                x_application=x_back,
+                y_application=t_f + hd.application_height
+            ))
+        
+        # Empuje hidrostático sobre el fuste (agua por encima de la zapata)
+        if groundwater is not None and not groundwater.drainage_enabled:
+            hw_stem = min(groundwater.elevation, h_stem)
+            if hw_stem.magnitude > 0:
+                loads.append(GenericLoad(
+                    "Empuje Hidrostático sobre Fuste", LoadType.WA,
+                    force_x=(0.5 * Q_(9.80665, "kN/m**3") * hw_stem ** 2).to("kN/m"),
+                    force_y=Q_(0, "kN/m"),
+                    x_application=x_back,
+                    y_application=t_f + hw_stem / 3
+                ))
         
         if traffic_qs_kPa > 0:
             h_stem_m = h_stem.to("m").magnitude

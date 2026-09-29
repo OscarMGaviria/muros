@@ -35,7 +35,8 @@ class StabilityCalculator:
         factored_load: FactoredResult,
         geometry: WallGeometry,
         foundation_soil: Soil,
-        is_rock: bool = False
+        is_rock: bool = False,
+        gamma_eq: float = 1.0
     ) -> StabilityResult:
         
         b = geometry.footing_width.to("m").magnitude
@@ -56,11 +57,15 @@ class StabilityCalculator:
             
         e = Q_(e_mag, "m")
         
-        # Límite de excentricidad típico: B/3 para suelo, B/4 para roca (AASHTO/CCP-14)
-        # En LRFD extremo puede ser B/3 o B/2 dependiendo del estado límite, pero
-        # tomaremos B/3 como estándar conservador general (se puede ajustar luego por estado límite).
+        # Límite de excentricidad: B/3 para suelo, B/4 para roca (AASHTO/CCP-14).
+        # En sismo (11.6.5.1) la resultante debe quedar en los 2/3 centrales de la
+        # base con γEQ = 0 (e ≤ B/3) y en los 8/10 centrales con γEQ = 1 (e ≤ 0.4B),
+        # interpolando linealmente para valores intermedios.
         is_extreme = 'Extreme' in factored_load.limit_state_name
-        e_limit = (0.4 * b) if is_extreme else ((b / 4) if is_rock else (b / 3))
+        if is_extreme:
+            e_limit = b * (1 / 3 + gamma_eq * (0.4 - 1 / 3))
+        else:
+            e_limit = (b / 4) if is_rock else (b / 3)
         # Absoluto porque la resultante puede caer hacia el talón o la punta
         is_safe_ecc = abs(e_mag) <= e_limit
         

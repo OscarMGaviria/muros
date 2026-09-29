@@ -189,6 +189,7 @@ const applyBearingCapacity = () => {
             <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Peso Específico (γ)</label><div class="flex shadow-sm"><input type="number" step="0.1" v-model.number="store.params.gamma_fill" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">kN/m³</span></div></div>
             <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Áng. Fricción Suelo (ϕ)</label><div class="flex shadow-sm"><input type="number" step="1" v-model.number="store.params.phi_fill" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">°</span></div></div>
             <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Fricción Muro-Suelo (δ)</label><div class="flex shadow-sm"><input type="number" step="1" v-model.number="store.params.delta_fill" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">°</span></div></div>
+            <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Peso Saturado (γsat)</label><div class="flex shadow-sm"><input type="number" step="0.1" v-model.number="store.params.gamma_sat_fill" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">kN/m³</span></div></div>
             <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Inclinación Relleno (β)</label><div class="flex shadow-sm"><input type="number" step="1" v-model.number="store.params.beta_fill" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">°</span></div></div>
             <div v-if="store.results?.results?.earth_pressure?.ka" class="pt-2 border-t border-orange-200/50 mt-2 flex justify-between items-center">
               <span class="text-[10px] font-bold text-orange-800 flex items-center">
@@ -227,7 +228,81 @@ const applyBearingCapacity = () => {
       <!-- TAB: LOADS -->
       <template v-if="activeTab === 'loads'">
         <div class="space-y-1.5"><label class="text-xs font-semibold text-slate-600">Sobrecarga Visual (diagrama)</label><div class="flex shadow-sm"><input type="number" step="1" v-model.number="store.params.q_surcharge" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1.5 px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-3 py-1.5 text-xs text-slate-500">kPa</span></div><p class="text-[10px] text-slate-400 leading-tight">Solo controla el bloque de sobrecarga en el dibujo. El empuje LS de diseño se calcula automáticamente (ver abajo).</p></div>
-        <div class="space-y-1.5"><label class="text-xs font-semibold text-slate-600">Coef. Sísmico (kh)</label><div class="flex shadow-sm"><input type="number" step="0.01" v-model.number="store.params.kh" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1.5 px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-3 py-1.5 text-xs text-slate-500">g</span></div></div>
+
+        <div class="bg-violet-50 p-3 rounded-md border border-violet-100">
+          <h3 class="text-xs font-bold text-violet-900 mb-2">Sismo — CCP-14 11.6.5</h3>
+          <div class="space-y-3">
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-600">Coeficiente sísmico kh</label>
+              <select v-model="store.params.kh_mode" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-md py-1 px-2 text-xs outline-none shadow-sm">
+                <option value="DIRECT">Dato directo</option>
+                <option value="PGA">Calcular desde PGA (kh0 = Fpga·PGA)</option>
+              </select>
+            </div>
+            <div v-if="store.params.kh_mode === 'DIRECT'" class="space-y-1"><label class="text-[10px] font-bold text-slate-600">kh</label><div class="flex shadow-sm"><input type="number" step="0.01" min="0" v-model.number="store.params.kh" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">g</span></div></div>
+            <template v-else>
+              <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">PGA</label><div class="flex shadow-sm"><input type="number" step="0.01" min="0" v-model.number="store.params.pga" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">g</span></div></div>
+              <div class="space-y-1">
+                <label class="text-[10px] font-bold text-slate-600">Tipo de perfil de suelo</label>
+                <select v-model="store.params.site_class" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-md py-1 px-2 text-xs outline-none shadow-sm">
+                  <option v-for="c in ['A','B','C','D','E','F']" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </div>
+              <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Fpga (vacío = Tabla 3.10.3.2-1)</label><div class="flex shadow-sm"><input type="number" step="0.05" min="0" placeholder="Automático" v-model.number="store.params.fpga" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">—</span></div></div>
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" v-model="store.params.allow_displacement" @change="store.calculate" class="mt-0.5 accent-violet-600" />
+                <span class="text-[10px] text-slate-600 leading-snug">El muro puede desplazarse 25–50 mm (kh = 0,5·kh0)</span>
+              </label>
+              <div v-if="store.results?.results?.seismic?.kh0 != null" class="pt-2 border-t border-violet-200/50 space-y-1">
+                <div class="flex justify-between"><span class="text-[10px] font-bold text-violet-800">Fpga</span><span class="text-xs font-mono font-black text-violet-700">{{ store.results.results.seismic.fpga.toFixed(2) }}</span></div>
+                <div class="flex justify-between"><span class="text-[10px] font-bold text-violet-800">kh0</span><span class="text-xs font-mono font-black text-violet-700">{{ store.results.results.seismic.kh0.toFixed(3) }}</span></div>
+                <div class="flex justify-between"><span class="text-[10px] font-bold text-violet-800">kh de diseño</span><span class="text-xs font-mono font-black text-violet-700">{{ store.results.results.seismic.kh.toFixed(3) }}</span></div>
+              </div>
+            </template>
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-600">Ubicación de la resultante P_AE</label>
+              <select v-model.number="store.params.pae_height_ratio" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-md py-1 px-2 text-xs outline-none shadow-sm">
+                <option :value="1/3">H/3 (norma)</option>
+                <option :value="0.4">0,4H</option>
+                <option :value="0.5">0,5H</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-600">Sobrecarga vehicular durante el sismo (γEQ)</label>
+              <select v-model.number="store.params.gamma_eq" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-md py-1 px-2 text-xs outline-none shadow-sm">
+                <option :value="0">0,0 — sin tráfico</option>
+                <option :value="0.5">0,5</option>
+                <option :value="1">1,0</option>
+              </select>
+            </div>
+            <p class="text-[10px] text-slate-500 leading-tight">Evento Extremo I se revisa en dos casos: 100 % P_AE + 50 % P_IR y 50 % P_AE (≥ P_A) + 100 % P_IR.</p>
+          </div>
+        </div>
+
+        <div class="bg-cyan-50 p-3 rounded-md border border-cyan-100">
+          <h3 class="text-xs font-bold text-cyan-900 mb-2">Nivel Freático</h3>
+          <div class="space-y-3">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="store.params.gw_enabled" @change="store.calculate" class="mt-0.5 accent-cyan-600" />
+              <span class="text-[10px] text-slate-600 font-bold leading-snug">Considerar nivel freático detrás del muro</span>
+            </label>
+            <template v-if="store.params.gw_enabled">
+              <div class="space-y-1"><label class="text-[10px] font-bold text-slate-600">Altura desde la base de la zapata</label><div class="flex shadow-sm"><input type="number" step="0.1" min="0" v-model.number="store.params.gw_elevation" @change="store.calculate" class="w-full bg-white border border-slate-300 rounded-l-md py-1 px-2 text-xs outline-none" /><span class="bg-slate-50 border border-l-0 border-slate-300 rounded-r-md px-2 py-1 text-[10px] text-slate-500">m</span></div></div>
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" v-model="store.params.gw_drained" @change="store.calculate" class="mt-0.5 accent-cyan-600" />
+                <span class="text-[10px] text-slate-600 leading-snug">Relleno con drenaje (sin presión de agua)</span>
+              </label>
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" v-model="store.params.gw_free_draining" @change="store.calculate" class="mt-0.5 accent-cyan-600" />
+                <span class="text-[10px] text-slate-600 leading-snug">Relleno de drenaje libre (triturado): en sismo usa peso sumergido y presión hidrodinámica</span>
+              </label>
+              <div v-if="store.results?.results?.water?.hw_m > 0" class="pt-2 border-t border-cyan-200/50 space-y-1">
+                <div class="flex justify-between"><span class="text-[10px] font-bold text-cyan-800">Empuje hidrostático</span><span class="text-xs font-mono font-black text-cyan-700">{{ store.results.results.water.hydrostatic_kN_m.toFixed(1) }} kN/m</span></div>
+                <div class="flex justify-between"><span class="text-[10px] font-bold text-cyan-800">Subpresión en el talón</span><span class="text-xs font-mono font-black text-cyan-700">{{ store.results.results.water.uplift_at_heel_kPa.toFixed(1) }} kPa</span></div>
+              </div>
+            </template>
+          </div>
+        </div>
 
         <div class="bg-blue-50 p-3 rounded-md border border-blue-100 mt-2">
           <h3 class="text-xs font-bold text-blue-900 mb-2">Sobrecarga Vehicular (LS) — AASHTO Tabla 3.11.6.4</h3>

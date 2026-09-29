@@ -70,10 +70,18 @@ def test_water_pressure_undrained():
     assert result.horizontal_force.magnitude.to("kN/m").magnitude == pytest.approx(expected_horizontal, abs=0.01)
     assert result.horizontal_force.application_height.to("m").magnitude == pytest.approx(2/3, abs=0.01)
     
-    # 2. Peso del agua sobre el talón = gamma_w * hw * heel = 9.80665 * 2 * 2 = 39.226 kN/m
-    expected_vertical = gamma_w * 2.0 * 2.0
-    assert result.vertical_force.magnitude.to("kN/m").magnitude == pytest.approx(expected_vertical, abs=0.01)
+    # 2. El agua sobre el talón ya está en el peso saturado del suelo: no se suma aparte
+    assert result.vertical_force.magnitude.to("kN/m").magnitude == 0
     
     # 3. Subpresión = 0.5 * (gamma_w * hw) * B = 0.5 * (9.80665 * 2) * 3.5 = 34.323 kN/m (negativo)
     expected_uplift = -0.5 * (gamma_w * 2.0) * 3.5
     assert result.uplift.magnitude.to("kN/m").magnitude == pytest.approx(expected_uplift, abs=0.01)
+    assert result.uplift.application_height.to("m").magnitude == pytest.approx(2 * 3.5 / 3)
+    assert result.uplift_pressure_at_heel.to("kPa").magnitude == pytest.approx(gamma_w * 2.0)
+
+
+def test_water_limited_to_total_retained_height():
+    # Altura total = fuste 5.0 + zapata 0.5 = 5.5 m; el agua no puede superarla
+    wall = create_mock_wall(gw_elevation=8.0, drainage_enabled=False)
+    result = WaterPressureCalculator().calculate(wall)
+    assert result.water_height.to("m").magnitude == pytest.approx(5.5)

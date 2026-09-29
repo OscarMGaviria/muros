@@ -54,6 +54,13 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <div v-if="store.results?.results?.warnings?.length" class="shrink-0 bg-amber-50 text-amber-900 border-b border-amber-200 px-5 py-2 text-xs font-medium space-y-1">
+      <div v-for="(w, i) in store.results.results.warnings" :key="i" class="flex items-start gap-2">
+        <svg class="w-4 h-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"></path></svg>
+        <span>{{ w }}</span>
+      </div>
+    </div>
+
     <main class="flex-1 flex overflow-hidden relative">
       <ParametersForm />
       

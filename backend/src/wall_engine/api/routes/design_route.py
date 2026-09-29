@@ -9,6 +9,8 @@ from wall_engine.domain.wall.entities import WallMaterials, Wall, DesignOptions
 from wall_engine.domain.soil.entities import Soil
 from wall_engine.domain.loads.entities import TrafficSurcharge
 from wall_engine.seismic.parameters import SeismicParameters
+from wall_engine.seismic.coefficients import horizontal_seismic_coefficient
+from wall_engine.domain.water.entities import Groundwater
 from wall_engine.codes.ccp14.orchestrator import CCP14Orchestrator
 
 router = APIRouter()
@@ -42,7 +44,7 @@ def design_wall_ccp14(request: WallDesignRequest):
         back_soil = Soil(
             name=request.backfill.name,
             unit_weight=Q_(request.backfill.gamma_kN_m3, "kN/m**3"),
-            saturated_unit_weight=None,
+            saturated_unit_weight=Q_(request.backfill.gamma_sat_kN_m3, "kN/m**3") if request.backfill.gamma_sat_kN_m3 else None,
             friction_angle=Q_(request.backfill.phi_deg, "degrees"),
             cohesion=Q_(request.backfill.cohesion_kPa, "kPa"),
             interface_friction_angle=Q_(request.backfill.interface_friction_deg, "degrees") if request.backfill.interface_friction_deg is not None else Q_(request.backfill.phi_deg * 0.66, "degrees"),
@@ -61,12 +63,36 @@ def design_wall_ccp14(request: WallDesignRequest):
             bearing_capacity=Q_(request.foundation_soil.nominal_bearing_resistance_kPa, "kPa") if request.foundation_soil.nominal_bearing_resistance_kPa else None
         )
         
-        seis = SeismicParameters(
-            ag=request.seismic.kh if request.seismic else 0.0,
-            kh=request.seismic.kh if request.seismic else 0.0,
-            kv=request.seismic.kv if request.seismic else 0.0,
-            soil_factor=None, seismic_zone=None
-        )
+        seis_req = request.seismic
+        seismic_info = None
+        if seis_req is None:
+            seis = SeismicParameters(ag=None, kh=0.0, kv=0.0)
+        else:
+            kh = seis_req.kh
+            if seis_req.kh_mode == "PGA":
+                if seis_req.pga is None or seis_req.site_class is None:
+                    raise HTTPException(status_code=422, detail="Para calcular kh desde PGA se requieren 'pga' y 'site_class'.")
+                try:
+                    coef = horizontal_seismic_coefficient(seis_req.pga, seis_req.site_class, seis_req.fpga,
+                                                          seis_req.allow_displacement)
+                except ValueError as err:
+                    raise HTTPException(status_code=422, detail=str(err))
+                kh = coef.kh
+                seismic_info = {"fpga": coef.fpga, "kh0": coef.kh0}
+            seis = SeismicParameters(
+                ag=seis_req.pga, kh=kh, kv=seis_req.kv,
+                q_surcharge=seis_req.q_surcharge_kPa,
+                gamma_eq=seis_req.gamma_eq,
+                pae_height_ratio=seis_req.pae_height_ratio
+            )
+        
+        gw_req = request.groundwater
+        groundwater = Groundwater(
+            elevation=Q_(gw_req.elevation_m, "m"),
+            drainage_enabled=gw_req.drainage_enabled,
+            drainage_type=None,
+            free_draining_backfill=gw_req.free_draining_backfill
+        ) if gw_req else None
 
         traffic_req = request.traffic or TrafficSchema()
         traffic = TrafficSurcharge(
@@ -81,7 +107,7 @@ def design_wall_ccp14(request: WallDesignRequest):
             materials=mats,
             backfill=back_soil,
             foundation_soil=found_soil,
-            groundwater=None,
+            groundwater=groundwater,
             surcharges=[],
             seismic=seis,
             traffic=traffic,
@@ -136,8 +162,25 @@ def design_wall_ccp14(request: WallDesignRequest):
                 },
                 "earth_pressure": {
                     "ka": report.earth_pressure.coefficient_active,
-                    "kp": report.earth_pressure.coefficient_passive
+                    "kp": report.earth_pressure.coefficient_passive,
+                    "kae": report.earth_pressure.coefficient_seismic_active
                 },
+                "seismic": {
+                    "kh": seis.kh,
+                    "kv": seis.kv,
+                    "kh0": seismic_info["kh0"] if seismic_info else None,
+                    "fpga": seismic_info["fpga"] if seismic_info else None,
+                    "gamma_eq": seis.gamma_eq,
+                    "pae_height_ratio": seis.pae_height_ratio,
+                    # Evento Extremo I se evalúa en los dos casos de 11.6.5.1
+                    "extreme_event_states": [n for n in report.stability_results if n.startswith("Extreme")]
+                },
+                "water": {
+                    "hw_m": float(report.water.water_height.to("m").magnitude) if report.water else 0.0,
+                    "uplift_at_heel_kPa": float(report.water.uplift_pressure_at_heel.to("kPa").magnitude) if report.water else 0.0,
+                    "hydrostatic_kN_m": float(report.water.horizontal_force.magnitude.to("kN/m").magnitude) if report.water else 0.0
+                },
+                "warnings": report.warnings,
                 "traffic_surcharge": {
                     "heq_m": report.traffic_heq_m,
                     "qs_kPa": report.traffic_qs_kPa
@@ -158,5 +201,7 @@ def design_wall_ccp14(request: WallDesignRequest):
             
         return res
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

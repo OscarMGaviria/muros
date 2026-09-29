@@ -113,14 +113,15 @@ def test_seismic_inertial_loads():
     calc = WeightCalculator()
     eq_loads = calc.calculate_seismic_inertial_loads(wall)
     
-    # 5 concrete blocks + 2 soil blocks = 7 EQ loads
-    assert len(eq_loads) == 7
+    # 5 bloques de concreto + suelo sobre el talón = 6 cargas EQ.
+    # El relleno sobre la punta no forma parte de W_s (CCP-14 11.6.5.1).
+    assert len(eq_loads) == 6
     
     total_kh_concrete_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIR" in b.name)
     total_kh_soil_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIS" in b.name)
     
     concrete_weight = 90.0 # From previous test
-    soil_weight = 189.0 # From previous test (180 + 9)
+    soil_weight = 180.0 # Solo el suelo sobre el talón
     
     assert total_kh_concrete_weight == pytest.approx(concrete_weight * 0.2)
     assert total_kh_soil_weight == pytest.approx(soil_weight * 0.2)
@@ -143,3 +144,25 @@ def test_slope_soil_centroid():
     assert slope.x_centroid.to("m").magnitude == pytest.approx(1.0 + 0.5 + 2.0 * 2 / 3)
     h = 2.0 * math.tan(math.radians(20))
     assert slope.weight.to("kN/m").magnitude == pytest.approx(0.5 * 2.0 * h * 18)
+
+
+
+def test_saturated_soil_over_heel():
+    """Bajo el nivel freático el suelo sobre el talón pesa con gamma_sat (incluye el agua)."""
+    from dataclasses import replace
+    from wall_engine.domain.water.entities import Groundwater
+    wall = create_test_wall()
+    wall.backfill = replace(wall.backfill, saturated_unit_weight=Q_(20, "kN/m**3"))
+    # Agua a 2.5 m de la base: 2.0 m saturados sobre la zapata (0.5 m) y 3.0 m secos
+    wall.groundwater = Groundwater(elevation=Q_(2.5, "m"), drainage_enabled=False, drainage_type=None)
+    blocks = WeightCalculator().calculate_soil_blocks(wall)
+    sat = next(b for b in blocks if b.name == "Soil over Heel (Saturated)")
+    dry = next(b for b in blocks if b.name == "Soil over Heel (Rectangular)")
+    assert sat.weight.to("kN/m").magnitude == pytest.approx(2.0 * 2.0 * 20)
+    assert dry.weight.to("kN/m").magnitude == pytest.approx(2.0 * 3.0 * 18)
+    assert sat.y_centroid.to("m").magnitude == pytest.approx(1.5)
+    
+    # Con drenaje no hay suelo saturado
+    wall.groundwater = replace(wall.groundwater, drainage_enabled=True)
+    names = [b.name for b in WeightCalculator().calculate_soil_blocks(wall)]
+    assert "Soil over Heel (Saturated)" not in names

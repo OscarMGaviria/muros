@@ -132,9 +132,13 @@ def test_stem_design_forces(report):
 
 
 def test_extreme_event_governs_reinforcement_when_larger():
+    # Con kh = 0.3 aún gobierna Strength I en el fuste (el estático no se mayora en sismo);
+    # con kh = 0.4 gobierna el sismo.
     static = CCP14Orchestrator().design_wall(make_cdot_wall(kh=0.0))
-    seismic = CCP14Orchestrator().design_wall(make_cdot_wall(kh=0.3))
-    assert seismic.structural_design.stem.M_u > static.structural_design.stem.M_u
+    moderate = CCP14Orchestrator().design_wall(make_cdot_wall(kh=0.3))
+    strong = CCP14Orchestrator().design_wall(make_cdot_wall(kh=0.4))
+    assert moderate.structural_design.stem.M_u.magnitude == pytest.approx(static.structural_design.stem.M_u.magnitude)
+    assert strong.structural_design.stem.M_u > static.structural_design.stem.M_u
 
 
 def test_key_passive_resistance_is_factored():
@@ -169,7 +173,8 @@ def test_bearing_check_with_geotechnical_q_n():
     strength = rep.bearing_results["Strength I"]
     assert strength.uses_geotechnical_q_n
     assert strength.q_resistance == pytest.approx(ksf(0.55 * 7.5))
-    assert rep.bearing_results["Extreme Event I"].q_resistance == pytest.approx(ksf(7.5))
+    assert rep.bearing_results["Extreme Event I-a"].q_resistance == pytest.approx(ksf(7.5))
+    assert rep.bearing_results["Extreme Event I-b"].q_resistance == pytest.approx(ksf(7.5))
 
     # Strength IV: sigma_V = 2.74 ksf en el ejemplo
     assert rep.bearing_results["Strength IV"].q_demand == pytest.approx(ksf(2.74), rel=0.02)

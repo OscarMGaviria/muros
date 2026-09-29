@@ -30,13 +30,29 @@ export const useWallStore = defineStore('wall', {
       phi_fill: 30.0,
       delta_fill: 20.0,
       beta_fill: 0.0,
+      gamma_sat_fill: 20.0, // Peso saturado del relleno (bajo el nivel freático)
       gamma_found: 20.0,
       phi_found: 35.0,
       q_allow: 300.0,
       
       // Loads
       q_surcharge: 10.0,
+
+      // Sismo (CCP-14 11.6.5)
+      kh_mode: 'DIRECT', // 'DIRECT' (kh dado) o 'PGA' (kh = Fpga·PGA, 11.6.5.2)
       kh: 0.0,
+      pga: 0.25,
+      site_class: 'D',
+      fpga: null, // Opcional; si se deja vacío se toma de la Tabla 3.10.3.2-1
+      allow_displacement: false, // Desplazamiento de 25-50 mm aceptable: kh = 0.5·kh0
+      gamma_eq: 0.0, // Factor de LS en Evento Extremo I
+      pae_height_ratio: 1 / 3, // Altura de la resultante de P_AE: H/3, 0.4H o 0.5H
+
+      // Nivel freático
+      gw_enabled: false,
+      gw_elevation: 2.0, // Medido desde la base de la zapata (m)
+      gw_drained: false, // Relleno con drenaje: sin presiones de agua
+      gw_free_draining: false, // Relleno muy permeable: presión hidrodinámica en sismo
 
       // Sobrecarga vehicular (LS) - AASHTO Tabla 3.11.6.4
       traffic_orientation: 'PARALLEL', // 'PARALLEL' o 'PERPENDICULAR'
@@ -67,6 +83,10 @@ export const useWallStore = defineStore('wall', {
       if (p.fy <= 0) warnings.push('fy debe ser mayor a 0.')
       if (p.gamma_fill <= 0) warnings.push('El peso específico del relleno debe ser mayor a 0.')
       if (p.q_allow <= 0) warnings.push('La capacidad portante admisible debe ser mayor a 0.')
+      if (p.kh_mode === 'PGA' && !(p.pga > 0)) warnings.push('Ingrese el PGA para calcular kh.')
+      if (p.kh_mode === 'PGA' && p.site_class === 'F' && !(p.fpga > 0)) warnings.push('Perfil F: ingrese Fpga del estudio de respuesta de sitio.')
+      if (p.gw_enabled && p.gw_elevation < 0) warnings.push('El nivel freático no puede ser negativo.')
+      if (p.gamma_sat_fill < p.gamma_fill) warnings.push('El peso saturado del relleno debería ser mayor o igual al peso seco.')
       const heel = p.B - p.L_toe - p.stem_bot
       if (heel <= 0) warnings.push('Geometría inválida: L_toe + espesor de fuste inferior debe ser menor que B (talón negativo).')
       return warnings
@@ -210,7 +230,8 @@ export const useWallStore = defineStore('wall', {
             gamma_kN_m3: this.params.gamma_fill,
             phi_deg: this.params.phi_fill,
               interface_friction_deg: this.params.delta_fill,
-            cohesion_kPa: 0.0
+            cohesion_kPa: 0.0,
+            gamma_sat_kN_m3: this.params.gamma_sat_fill
           },
           foundation_soil: {
             name: 'Fundación',
@@ -224,9 +245,21 @@ export const useWallStore = defineStore('wall', {
             distance_from_back_m: this.params.traffic_distance
           },
           seismic: {
+            kh_mode: this.params.kh_mode,
             kh: this.params.kh,
-            kv: 0.0
+            kv: 0.0,
+            pga: this.params.pga,
+            site_class: this.params.site_class,
+            fpga: this.params.fpga > 0 ? this.params.fpga : null,
+            allow_displacement: this.params.allow_displacement,
+            gamma_eq: this.params.gamma_eq,
+            pae_height_ratio: this.params.pae_height_ratio
           },
+          groundwater: this.params.gw_enabled ? {
+            elevation_m: this.params.gw_elevation,
+            drainage_enabled: this.params.gw_drained,
+            free_draining_backfill: this.params.gw_free_draining
+          } : null,
           design_options: {
             ignore_heel_soil_reaction: this.params.ignore_heel_reaction
           }

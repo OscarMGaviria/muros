@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 from wall_engine.units.registry import Force, Angle, Length
 
 @dataclass
@@ -22,3 +22,7 @@ class EarthPressureResult:
     
     horizontal_resultant: Force
     vertical_resultant: Force
+    
+    coefficient_seismic_active: Optional[float] = None  # K_AE (Mononobe-Okabe)
+    hydrodynamic_force: Optional[ForceComponent] = None  # Westergaard, relleno de drenaje libre
+    warnings: List[str] = field(default_factory=list)

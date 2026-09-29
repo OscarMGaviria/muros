@@ -75,19 +75,35 @@ class WeightCalculator:
         geom = wall.geometry
         gamma_s = wall.backfill.unit_weight
         
-        # 1. Suelo sobre el talón (Rectangular)
+        # 1. Suelo sobre el talón (Rectangular). Bajo el nivel freático (medido desde
+        # la base de la zapata, sin drenaje) se usa el peso saturado, que ya
+        # incluye el agua de los poros.
         if geom.heel_length.magnitude > 0:
-            heel_soil_vol = geom.heel_length * geom.stem_height
-            heel_soil_weight = (heel_soil_vol * gamma_s).to("kN/m")
             x_heel_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length / 2)
+            y_bottom = geom.footing_thickness
+            y_top = geom.footing_thickness + geom.stem_height
+            y_water = y_bottom
+            gw = wall.groundwater
+            if gw is not None and not gw.drainage_enabled:
+                y_water = min(max(gw.elevation, y_bottom), y_top)
             
-            blocks.append(Block2D(
-                name="Soil over Heel (Rectangular)",
-                load_type="EV",
-                weight=heel_soil_weight,
-                x_centroid=x_heel_centroid,
-                y_centroid=geom.footing_thickness + (geom.stem_height / 2)
-            ))
+            if (y_water - y_bottom).magnitude > 0:
+                gamma_sat = wall.backfill.saturated_unit_weight or gamma_s
+                blocks.append(Block2D(
+                    name="Soil over Heel (Saturated)",
+                    load_type="EV",
+                    weight=(geom.heel_length * (y_water - y_bottom) * gamma_sat).to("kN/m"),
+                    x_centroid=x_heel_centroid,
+                    y_centroid=(y_bottom + y_water) / 2
+                ))
+            if (y_top - y_water).magnitude > 0:
+                blocks.append(Block2D(
+                    name="Soil over Heel (Rectangular)",
+                    load_type="EV",
+                    weight=(geom.heel_length * (y_top - y_water) * gamma_s).to("kN/m"),
+                    x_centroid=x_heel_centroid,
+                    y_centroid=(y_water + y_top) / 2
+                ))
             
             # 2. Suelo sobre el talón (Triangular por el talud)
             beta = geom.backfill_slope.to('radians').magnitude
@@ -145,8 +161,11 @@ class WeightCalculator:
                 y_application=b.y_centroid
             ))
             
-        # PIS: Fuerzas inerciales del suelo (Talón y Punta)
+        # PIS: inercia del suelo inmediatamente encima del muro, incluido el talón
+        # (CCP-14 11.6.5.1, W_s). El relleno sobre la punta no forma parte de W_s.
         for b in soil_blocks:
+            if "Toe" in b.name:
+                continue
             f_eq = b.weight * kh
             eq_loads.append(GenericLoad(
                 name=f"Inertia PIS ({b.name})",
