@@ -5,6 +5,9 @@ from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.calculations.structural.footing_calculator import FootingCalculator
+from wall_engine.domain.soil.entities import Soil
+
+SOIL = Soil("Base", Q_(18, "kN/m**3"), None, Q_(30, "degrees"), Q_(0, "kPa"), None, None)
 
 def test_footing_calculator():
     geom = WallGeometry(
@@ -43,7 +46,7 @@ def test_footing_calculator():
     factors = {LoadType.EV: 1.0, LoadType.DC: 1.0}
     
     calc = FootingCalculator()
-    res = calc.calculate(loads, factors, geom, concrete, cover, stab)
+    res = calc.calculate(loads, factors, geom, concrete, cover, stab, SOIL)
     
     # ==========================
     # PUNTA (Toe)
@@ -93,17 +96,18 @@ def test_footing_calculator_with_key():
     stab = StabilityResult("TEST", 1, Q_(0, "m"), True, Q_(0, "kN/m"), Q_(100, "kN/m"), 0.0, 100.0, 100.0)
     
     calc = FootingCalculator()
-    res = calc.calculate([], {}, geom, concrete, cover, stab)
+    res = calc.calculate([], {}, geom, concrete, cover, stab, SOIL)
     
     assert res.key is not None
-    # p_pasiva = 0.5 * 18 * 0.5^2 * 3.0 = 6.75 kN/m
-    assert res.key.V_u.to("kN/m").magnitude == pytest.approx(6.75)
-    # mu_key = 6.75 * (0.5/3) = 1.125 kN-m/m
-    assert res.key.M_u.to("kN*m/m").magnitude == pytest.approx(1.125)
-    # d = 0.4 - 0.075 = 0.325
-    # vc = 0.17 * sqrt(28) * 1000 * 325 / 1000 = 292.3
-    # phi_vc = 0.75 * 292.3 = 219.2
-    assert res.key.phi_V_c.to("kN/m").magnitude == pytest.approx(219.2, abs=0.2)
+    # Pasivo sobre la franja del dentellón (Kp = 3 para phi = 30):
+    # y1 = 0 (sin relleno sobre la punta) + 0.5 (zapata); p1 = 18 * 3 * 0.5 = 27 kPa
+    # Rep = 27 * 0.5 + 0.5 * 27 * 0.5 = 20.25 kN/m
+    assert res.key.V_u.to("kN/m").magnitude == pytest.approx(20.25)
+    # z = (27 * 0.5^2 / 2 + 6.75 * 2 * 0.5 / 3) / 20.25 = 0.2778 m -> Mu = 5.625 kN-m/m
+    assert res.key.M_u.to("kN*m/m").magnitude == pytest.approx(5.625)
+    # d = 0.4 - 0.075 = 325 mm; dv = max(0.9*325, 0.72*400) = 292.5 mm
+    # Vc = 0.083 * 2 * sqrt(28) * 1000 * 292.5 / 1000 = 256.9; phi_Vc = 0.90 * 256.9 = 231.2
+    assert res.key.phi_V_c.to("kN/m").magnitude == pytest.approx(231.2, abs=0.2)
     assert res.key.is_shear_safe == True
 
 
@@ -128,9 +132,9 @@ def test_footing_ignores_load_types_absent_from_limit_state():
     load_soil = GenericLoad("Soil Heel", LoadType.EV, Q_(0, "kN/m"), Q_(200, "kN/m"), Q_(2.0, "m"), Q_(2.5, "m"))
     
     # EV no está en los factores: no debe cargar el talón
-    res = FootingCalculator().calculate([load_soil], {LoadType.DC: 1.25}, geom, concrete, Q_(0.075, "m"), stab)
+    res = FootingCalculator().calculate([load_soil], {LoadType.DC: 1.25}, geom, concrete, Q_(0.075, "m"), stab, SOIL)
     assert res.heel.M_u.to("kN*m/m").magnitude == pytest.approx(0.0)
     
     # Con EV = 1.35 y sin reacción del suelo: M = 1.35 * 200 * 1.0
-    res = FootingCalculator().calculate([load_soil], {LoadType.EV: 1.35}, geom, concrete, Q_(0.075, "m"), stab)
+    res = FootingCalculator().calculate([load_soil], {LoadType.EV: 1.35}, geom, concrete, Q_(0.075, "m"), stab, SOIL)
     assert res.heel.M_u.to("kN*m/m").magnitude == pytest.approx(270.0)

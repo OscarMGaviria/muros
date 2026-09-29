@@ -10,6 +10,7 @@ que no dependen de esa diferencia.
 """
 import math
 import uuid
+from dataclasses import replace
 import pytest
 from wall_engine.units.registry import Q_
 from wall_engine.domain.wall.geometry import WallGeometry
@@ -126,6 +127,8 @@ def test_stem_design_forces(report):
     stem = report.structural_design.stem
     assert stem.V_u.to("kN/m").magnitude == pytest.approx(kip_ft(6.88), rel=0.02)
     assert stem.M_u.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(38.75), rel=0.02)
+    # El control de fisuración usa el momento de Service I: 24.59 kip-ft/ft
+    assert stem.M_serv.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(24.59), rel=0.02)
 
 
 def test_extreme_event_governs_reinforcement_when_larger():
@@ -150,3 +153,31 @@ def test_key_passive_resistance_is_factored():
     friction = with_key.stability_results["Strength I"].sliding_capacity.to("kN/m").magnitude - 0.5 * rep
     assert friction > 0
     assert friction < cap_no_key  # el bloque inerte reduce la fricción del tramo R1
+
+
+def ksf(v):
+    return Q_(v, "kip/ft**2").to("kPa").magnitude
+
+
+def test_bearing_check_with_geotechnical_q_n():
+    """qn = 7.50 ksf del estudio geotécnico: qR = 0.55 qn = 4.13 ksf; en evento extremo qR = qn."""
+    wall = make_cdot_wall(kh=0.1)
+    wall.foundation_soil = replace(wall.foundation_soil, bearing_capacity=Q_(7.5, "kip/ft**2"))
+    rep = CCP14Orchestrator().design_wall(wall)
+
+    assert "Service I" not in rep.bearing_results
+    strength = rep.bearing_results["Strength I"]
+    assert strength.uses_geotechnical_q_n
+    assert strength.q_resistance == pytest.approx(ksf(0.55 * 7.5))
+    assert rep.bearing_results["Extreme Event I"].q_resistance == pytest.approx(ksf(7.5))
+
+    # Strength IV: sigma_V = 2.74 ksf en el ejemplo
+    assert rep.bearing_results["Strength IV"].q_demand == pytest.approx(ksf(2.74), rel=0.02)
+    # Strength Ib: 2.94 ksf en el ejemplo, que además incluye la baranda y LS vertical
+    assert ksf(2.5) < strength.q_demand < ksf(2.94)
+    assert all(br.is_safe for br in rep.bearing_results.values())
+
+
+def test_strength_iv_is_evaluated(report):
+    assert "Strength IV" in report.stability_results
+    assert report.governing_loads["Strength IV"].factors_used[LoadType.DC] in (1.50, 0.90)

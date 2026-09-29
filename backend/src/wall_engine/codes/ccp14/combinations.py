@@ -16,6 +16,18 @@ class CCP14Combinations:
         )
         
     @staticmethod
+    def strength_IV() -> LimitState:
+        """Resistencia IV: relación muy alta entre cargas permanentes y vivas (DC máx = 1.50, sin LS)"""
+        return LimitState(
+            name="Strength IV",
+            factors={
+                LoadType.DC: LoadFactor(gamma_max=1.50, gamma_min=0.90),
+                LoadType.EV: LoadFactor(gamma_max=1.35, gamma_min=1.00),
+                LoadType.EH: LoadFactor(gamma_max=1.50, gamma_min=0.90),
+            }
+        )
+
+    @staticmethod
     def service_I() -> LimitState:
         """Servicio I: Combinación para asentamientos, excentricidad (AASHTO 11.6.3) y fisuración"""
         return LimitState(
@@ -46,6 +58,7 @@ class CCP14Combinations:
     def get_all() -> Dict[str, LimitState]:
         return {
             "Strength I": CCP14Combinations.strength_I(),
+            "Strength IV": CCP14Combinations.strength_IV(),
             "Service I": CCP14Combinations.service_I(),
             "Extreme Event I": CCP14Combinations.extreme_event_I()
         }

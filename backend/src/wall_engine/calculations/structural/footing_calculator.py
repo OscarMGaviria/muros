@@ -7,16 +7,14 @@ from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.units.registry import Length
 from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.domain.results.footing_design import FootingDesignResult, FootingSectionForces
+from wall_engine.calculations.structural.shear import concrete_shear_capacity
+from wall_engine.calculations.stability.calculator import key_passive_resistance
+from wall_engine.domain.soil.entities import Soil
 
 class FootingCalculator:
     
-    def _compute_shear_capacity(self, thickness_m: float, cover_m: float, fc_mpa: float) -> tuple[float, float, bool]:
-        d_m = thickness_m - cover_m
-        if d_m <= 0: d_m = 0.001
-        vc_kn = 0.17 * math.sqrt(fc_mpa) * 1000.0 * (d_m * 1000.0) / 1000.0
-        phi_v = 0.75
-        phi_vc = phi_v * vc_kn
-        return vc_kn, phi_vc
+    def _compute_shear_capacity(self, thickness_m: float, cover_m: float, fc_mpa: float) -> tuple[float, float]:
+        return concrete_shear_capacity(fc_mpa, thickness_m, thickness_m - cover_m)
         
     def calculate(
         self,
@@ -25,7 +23,8 @@ class FootingCalculator:
         geometry: WallGeometry,
         concrete: Concrete,
         cover: Length,
-        stability: StabilityResult
+        stability: StabilityResult,
+        foundation_soil: Soil
     ) -> FootingDesignResult:
         
         toe_len = geometry.toe_length.to("m").magnitude
@@ -129,37 +128,22 @@ class FootingCalculator:
         # ==========================================
         key_result = None
         if geometry.key_depth is not None and geometry.key_width is not None:
-            key_depth_m = geometry.key_depth.to("m").magnitude
             key_width_m = geometry.key_width.to("m").magnitude
             
-            if key_depth_m > 0 and key_width_m > 0:
-                # Calculamos empuje pasivo de forma simplificada (Rankine)
-                # El empuje actúa en la cara frontal del dentellón.
-                # Sobrecarga = q_toe_cut (presión debajo de la zapata al inicio del dentellón, conservadoramente q_toe)
-                gamma_soil = 18.0 # Asumimos un gamma si no lo pasan, aunque no está en la firma. 
-                # Para hacerlo preciso, deberíamos recibir foundation_soil. Por ahora, 
-                # como LRFD mayoró las fuerzas, tomaremos un Kp = 3.0 estándar si no tenemos el suelo.
-                # Para ser correctos, pediré prestado el cálculo rápido.
-                # Kp = tan^2(45 + phi/2)
-                Kp = 3.0 # Fijo por ahora asumiendo phi=30, conservador o podemos pasarlo por el factor
-                
-                # Presión triangular pasiva = 0.5 * gamma * H^2 * Kp
-                # Asumimos que el motor LRFD le pasaría una fuerza EH al dentellón. Si no,
-                # lo deducimos de la demanda horizontal neta que no friccionó, pero la estática 
-                # conservadora diseña el dentellón para resistir toda su capacidad pasiva:
-                p_pasiva = 0.5 * 18.0 * (key_depth_m**2) * Kp # kN/m asumiendo gamma=18
-                
-                # O asumiendo que el cortante máximo es todo el Sliding Demand factorado
-                # Usaremos la fuerza pasiva pura.
-                vu_key = p_pasiva
-                mu_key = p_pasiva * (key_depth_m / 3.0) # actua a un tercio de la base del dentellón o 2/3 de la punta
+            if geometry.key_depth.magnitude > 0 and key_width_m > 0:
+                # El dentellón se diseña para resistir el empuje pasivo nominal
+                # usado en el análisis de deslizamiento (CDOT BDM Ej. 11, 2.4).
+                # Sección crítica: unión con la base de la zapata.
+                rep, z = key_passive_resistance(geometry, foundation_soil)
+                vu_key = rep
+                mu_key = rep * z
                 
                 vc_key_kn, phi_vc_key_kn = self._compute_shear_capacity(key_width_m, cover_m, fc_mpa)
                 
                 key_result = FootingSectionForces(
                     V_u=Q_(vu_key, "kN/m"),
                     M_u=Q_(mu_key, "kN*m/m"),
-                    M_serv=Q_(0, "kN*m/m"),
+                    M_serv=Q_(mu_key, "kN*m/m"),  # pasivo nominal, sin mayorar
                     V_c=Q_(vc_key_kn, "kN/m"),
                     phi_V_c=Q_(phi_vc_key_kn, "kN/m"),
                     is_shear_safe=vu_key <= phi_vc_key_kn

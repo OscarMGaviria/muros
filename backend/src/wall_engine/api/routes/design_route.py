@@ -56,7 +56,9 @@ def design_wall_ccp14(request: WallDesignRequest):
             friction_angle=Q_(request.foundation_soil.phi_deg, "degrees"),
             cohesion=Q_(request.foundation_soil.cohesion_kPa, "kPa"),
             interface_friction_angle=Q_(request.foundation_soil.interface_friction_deg, "degrees") if request.foundation_soil.interface_friction_deg is not None else Q_(request.foundation_soil.phi_deg, "degrees"),
-            bearing_capacity=Q_(request.foundation_soil.bearing_capacity_kPa, "kPa") if request.foundation_soil.bearing_capacity_kPa else None
+            # El motor LRFD usa la resistencia nominal q_n; la presión admisible
+            # (bearing_capacity_kPa) no es equivalente y no se le pasa.
+            bearing_capacity=Q_(request.foundation_soil.nominal_bearing_resistance_kPa, "kPa") if request.foundation_soil.nominal_bearing_resistance_kPa else None
         )
         
         seis = SeismicParameters(
@@ -114,7 +116,19 @@ def design_wall_ccp14(request: WallDesignRequest):
                     },
                     "bearing": {
                         "q_max": float(report.stability_results["Strength I"].q_toe) if "Strength I" in report.stability_results else 0.0,
-                        "q_min": float(report.stability_results["Strength I"].q_heel) if "Strength I" in report.stability_results else 0.0
+                        "q_min": float(report.stability_results["Strength I"].q_heel) if "Strength I" in report.stability_results else 0.0,
+                        # Verificación LRFD: sigma_V = V/B' frente a phi_b * q_n, por estado límite
+                        "checks": {
+                            name: {
+                                "q_demand_kPa": float(br.q_demand),
+                                "q_nominal_kPa": float(br.q_nominal.to("kPa").magnitude),
+                                "phi_b": br.phi_b,
+                                "q_resistance_kPa": float(br.q_resistance),
+                                "ratio": float(br.bearing_ratio),
+                                "is_safe": bool(br.is_safe)
+                            }
+                            for name, br in report.bearing_results.items()
+                        }
                     }
                 },
                 "earth_pressure": {

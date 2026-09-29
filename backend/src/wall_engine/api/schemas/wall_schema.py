@@ -39,7 +39,11 @@ class SoilSchema(BaseModel):
     phi_deg: float = Field(..., gt=0, lt=90)
     cohesion_kPa: float = Field(0.0, ge=0)
     interface_friction_deg: Optional[float] = None
+    # Presión admisible (criterio de esfuerzos de trabajo); solo la usa el frontend.
     bearing_capacity_kPa: Optional[float] = None
+    # Resistencia nominal q_n del estudio geotécnico (LRFD). Si se omite, el motor
+    # la calcula con la ecuación general de capacidad portante.
+    nominal_bearing_resistance_kPa: Optional[float] = Field(None, gt=0)
 
 # --- Traffic & Seismic ---
 class TrafficSchema(BaseModel):

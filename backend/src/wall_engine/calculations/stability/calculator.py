@@ -5,6 +5,29 @@ from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.domain.soil.entities import Soil
 from wall_engine.domain.wall.geometry import WallGeometry
 
+
+def key_passive_resistance(geometry: WallGeometry, foundation_soil: Soil) -> tuple[float, float]:
+    """
+    Empuje pasivo nominal frente al dentellón (AASHTO 11.6.3.5): se desprecia el
+    suelo sobre la punta y la zapata, y solo se cuenta la franja entre la base de
+    la zapata (y1) y el fondo del dentellón (y2), con profundidades medidas desde
+    la superficie sobre la punta. Kp de Rankine (beta = 0, delta = 0).
+    Retorna (Rep en kN/m, brazo z en m medido hacia abajo desde la base de la zapata).
+    """
+    d_key = geometry.key_depth.to("m").magnitude if geometry.key_depth else 0.0
+    if d_key <= 0:
+        return 0.0, 0.0
+    phi_f = foundation_soil.friction_angle.to("radians").magnitude
+    k_p = (1 + math.sin(phi_f)) / (1 - math.sin(phi_f))
+    gamma_f = foundation_soil.unit_weight.to("kN/m**3").magnitude
+    y1 = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
+    p1 = gamma_f * k_p * y1           # presión en la base de la zapata
+    dp = gamma_f * k_p * d_key        # incremento hasta el fondo del dentellón
+    rep = p1 * d_key + 0.5 * dp * d_key
+    z = (p1 * d_key * d_key / 2 + 0.5 * dp * d_key * (2 * d_key / 3)) / rep
+    return rep, z
+
+
 class StabilityCalculator:
     
     def calculate(
@@ -72,19 +95,8 @@ class StabilityCalculator:
         phi_tau = 1.0
         phi_ep = 1.0 if is_extreme else 0.50
 
-        # Empuje pasivo (AASHTO 11.6.3.5): se desprecia el suelo frente a la punta
-        # y la zapata, porque puede ser removido. Solo se cuenta el pasivo movilizado
-        # por el dentellón, en la franja entre la base de la zapata y el fondo del
-        # dentellón, con profundidades medidas desde la superficie sobre la punta.
-        passive_cap = 0.0
-        if d_key > 0:
-            phi_f = foundation_soil.friction_angle.to("radians").magnitude
-            # K_p simplificado (Rankine, beta=0, delta=0 para pasivo seguro)
-            k_p = (1 + math.sin(phi_f)) / (1 - math.sin(phi_f))
-            gamma_f = foundation_soil.unit_weight.to("kN/m**3").magnitude
-            y1 = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
-            y2 = y1 + d_key
-            passive_cap = gamma_f * k_p * (y1 + y2) / 2 * (y2 - y1)
+        # Empuje pasivo: solo el movilizado por el dentellón (AASHTO 11.6.3.5)
+        passive_cap, _ = key_passive_resistance(geometry, foundation_soil)
 
         # Capacidad factorada: φτ·R_τ + φep·R_ep
         friction_cap = phi_tau * friction_cap

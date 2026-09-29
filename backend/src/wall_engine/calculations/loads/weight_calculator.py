@@ -95,8 +95,9 @@ class WeightCalculator:
                 slope_height = geom.heel_length * math.tan(beta)
                 slope_vol = 0.5 * geom.heel_length * slope_height
                 slope_weight = (slope_vol * gamma_s).to("kN/m")
-                # C.G. a 1/3 del talón desde el inicio del talud
-                x_slope_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length / 3)
+                # La cuña crece desde la cara del fuste (altura 0) hasta el extremo
+                # del talón: su C.G. está a 2/3 del talón medido desde el fuste.
+                x_slope_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length * 2 / 3)
                 
                 blocks.append(Block2D(
                     name="Soil over Heel (Slope)",

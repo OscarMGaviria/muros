@@ -61,7 +61,7 @@ class CCP14Orchestrator:
             ]
             ecc_perm, ecc_stab = max(evaluated, key=lambda ps: abs(ps[1].eccentricity.to("m").magnitude))
             _, slide_stab = max(evaluated, key=lambda ps: ps[1].sliding_ratio)
-            bear_perm, bear_stab = max(evaluated, key=lambda ps: max(ps[1].q_toe, ps[1].q_heel))
+            _, bear_stab = max(evaluated, key=lambda ps: max(ps[1].q_toe, ps[1].q_heel))
             
             governing_loads[ls_name] = ecc_perm
             stability_res[ls_name] = replace(
@@ -73,8 +73,16 @@ class CCP14Orchestrator:
                 q_heel=bear_stab.q_heel
             )
             
-            # 4. Portante (con la permutación de máxima presión)
-            bearing_res[ls_name] = self.bear_calc.calculate(bear_stab, bear_perm, wall.geometry, wall.foundation_soil)
+            # 4. Portante: estados de resistencia y evento extremo (en servicio se
+            # revisan asentamientos, no resistencia). Gobierna la mayor relación
+            # demanda / resistencia entre las permutaciones.
+            if ls_name != "Service I":
+                embedment = (wall.geometry.toe_cover_soil + wall.geometry.footing_thickness).to("m").magnitude
+                bearing_res[ls_name] = max(
+                    (self.bear_calc.calculate(stab, perm, wall.geometry, wall.foundation_soil, embedment)
+                     for perm, stab in evaluated),
+                    key=lambda br: br.bearing_ratio
+                )
             
             # 5. Cortante y Momento para Estructuras: envolvente de todas las permutaciones
             stem_candidates = []
@@ -83,14 +91,15 @@ class CCP14Orchestrator:
                 stem_candidates.append(self.stem_calc.calculate(
                     stem_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover))
                 footing_candidates.append(self.foot_calc.calculate(
-                    all_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover, stab))
+                    all_loads, perm.factors_used, wall.geometry, wall.materials.concrete, wall.materials.cover, stab,
+                    wall.foundation_soil))
             
             stem_forces_dict[ls_name] = _envelope_stem(stem_candidates)
             footing_forces_dict[ls_name] = _envelope_footing(footing_candidates)
             
         # 6. Envolvente de diseño: estados de resistencia y evento extremo.
         # Service I provee los momentos para control de fisuración.
-        design_states = [n for n in ("Strength I", "Extreme Event I") if n in stem_forces_dict]
+        design_states = [n for n in ("Strength I", "Strength IV", "Extreme Event I") if n in stem_forces_dict]
         design_stem = _envelope_stem([stem_forces_dict[n] for n in design_states])
         design_foot = _envelope_footing([footing_forces_dict[n] for n in design_states])
         service_stem = stem_forces_dict.get("Service I")

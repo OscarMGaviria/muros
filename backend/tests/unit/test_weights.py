@@ -130,3 +130,16 @@ def test_seismic_inertial_loads():
         assert eq_load.load_type == LoadType.EQ_I
         assert eq_load.force_x.magnitude > 0
         assert eq_load.force_y.magnitude == 0
+
+
+def test_slope_soil_centroid():
+    """La cuña del talud crece desde el fuste: su C.G. está a 2/3 del talón desde el fuste."""
+    from dataclasses import replace
+    wall = create_test_wall()
+    wall.geometry = replace(wall.geometry, backfill_slope=Q_(20, "degrees"))
+    blocks = WeightCalculator().calculate_soil_blocks(wall)
+    slope = next(b for b in blocks if "Slope" in b.name)
+    # x = punta 1.0 + fuste 0.5 + 2/3 * talón 2.0
+    assert slope.x_centroid.to("m").magnitude == pytest.approx(1.0 + 0.5 + 2.0 * 2 / 3)
+    h = 2.0 * math.tan(math.radians(20))
+    assert slope.weight.to("kN/m").magnitude == pytest.approx(0.5 * 2.0 * h * 18)

@@ -66,14 +66,14 @@ def test_stem_calculator():
     # Momento: Fuerza * Brazo = 150 kN * (2.0 - 0.5)m = 150 * 1.5 = 225 kN-m
     assert res.M_u.to("kN*m/m").magnitude == pytest.approx(225.0)
     
-    # Capacidad a cortante:
-    # d = 0.5m - 0.075m = 0.425m = 425 mm
-    # Vc = 0.17 * sqrt(28) * 1000 * 425 / 1000 = 382.3 kN
-    # phi_Vc = 0.75 * 382.3 = 286.7 kN
-    assert res.V_c.to("kN/m").magnitude == pytest.approx(382.3, abs=0.1)
-    assert res.phi_V_c.to("kN/m").magnitude == pytest.approx(286.7, abs=0.1)
+    # Capacidad a cortante (AASHTO / CCP-14 5.8.3.3, beta = 2):
+    # d = 0.5m - 0.075m = 425 mm; dv = max(0.9*425, 0.72*500) = 382.5 mm
+    # Vc = 0.083 * 2 * sqrt(28) * 1000 * 382.5 / 1000 = 336.0 kN
+    # phi_Vc = 0.90 * 336.0 = 302.4 kN
+    assert res.V_c.to("kN/m").magnitude == pytest.approx(336.0, abs=0.1)
+    assert res.phi_V_c.to("kN/m").magnitude == pytest.approx(302.4, abs=0.1)
     
-    # 150 <= 286.7 -> True
+    # 150 <= 302.4 -> True
     assert res.is_shear_safe == True
 
 
