@@ -6,6 +6,7 @@ from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.loads.entities import Surcharge
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.domain.results.earth_pressure import EarthPressureResult, ForceComponent
+from wall_engine.calculations.earth_pressure.coulomb import total_retained_height
 
 class RankineEarthPressure:
     
@@ -33,9 +34,7 @@ class RankineEarthPressure:
                 
         kp = math.tan(math.radians(45) + phi/2)**2
         
-        h_ret = geometry.stem_height
-        if geometry.heel_length.magnitude > 0 and beta > 0:
-            h_ret += geometry.heel_length * math.tan(beta)
+        h_ret = total_retained_height(geometry)
             
         gamma_w = Q_(9.80665, "kN/m**3")
         has_water = groundwater is not None and not groundwater.drainage_enabled and groundwater.elevation.to("m").magnitude > 0

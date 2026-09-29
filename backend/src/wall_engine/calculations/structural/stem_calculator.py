@@ -26,8 +26,9 @@ class StemCalculator:
         mu_serv = 0.0
         
         for load in loads:
-            # Factor de carga aplicado en el estado límite crítico
-            gamma = factors.get(load.load_type, 1.0)
+            # Factor de carga aplicado en el estado límite crítico.
+            # Un tipo de carga ausente del estado límite no participa (factor 0).
+            gamma = factors.get(load.load_type, 0.0)
             gamma_serv = 1.0 # Para Service I
             
             # Solo nos importan las fuerzas horizontales que actúan SOBRE el fuste.

@@ -66,13 +66,15 @@ class FootingCalculator:
         v_down_toe = 0.0
         m_down_toe = 0.0
         
+        # Convención del motor: force_y > 0 es carga hacia abajo (pesos).
+        # Un tipo de carga ausente del estado límite no participa (factor 0).
         for load in loads:
-            gamma = factors.get(load.load_type, 1.0)
+            gamma = factors.get(load.load_type, 0.0)
             x_app = load.x_application.to("m").magnitude
             if x_app < x_toe_cut:
                 fy = load.force_y.to("kN/m").magnitude
-                if fy < 0: # Carga hacia abajo
-                    fy_factored = abs(fy) * gamma
+                if fy > 0: # Carga hacia abajo
+                    fy_factored = fy * gamma
                     v_down_toe += fy_factored
                     arm = x_toe_cut - x_app
                     m_down_toe += fy_factored * arm
@@ -88,12 +90,12 @@ class FootingCalculator:
         m_down_heel = 0.0
         
         for load in loads:
-            gamma = factors.get(load.load_type, 1.0)
+            gamma = factors.get(load.load_type, 0.0)
             x_app = load.x_application.to("m").magnitude
             if x_app > x_heel_cut:
                 fy = load.force_y.to("kN/m").magnitude
-                if fy < 0:
-                    fy_factored = abs(fy) * gamma
+                if fy > 0:
+                    fy_factored = fy * gamma
                     v_down_heel += fy_factored
                     arm = x_app - x_heel_cut
                     m_down_heel += fy_factored * arm

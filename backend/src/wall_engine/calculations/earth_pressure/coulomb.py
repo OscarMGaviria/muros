@@ -6,6 +6,16 @@ from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.loads.entities import Surcharge
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.domain.results.earth_pressure import EarthPressureResult, ForceComponent
+from wall_engine.units.registry import Length
+
+
+def total_retained_height(geometry: WallGeometry) -> Length:
+    """Altura del plano virtual en el extremo del talón: fuste + zapata + talud sobre el talón."""
+    beta = geometry.backfill_slope.to('radians').magnitude
+    h = geometry.stem_height + geometry.footing_thickness
+    if geometry.heel_length.magnitude > 0 and beta > 0:
+        h += geometry.heel_length * math.tan(beta)
+    return h
 
 class CoulombEarthPressure:
     
@@ -14,8 +24,16 @@ class CoulombEarthPressure:
         soil: Soil,
         geometry: WallGeometry,
         surcharges: List[Surcharge],
-        groundwater: Optional[Groundwater] = None
+        groundwater: Optional[Groundwater] = None,
+        retained_height: Optional[Length] = None
     ) -> EarthPressureResult:
+        """
+        Por defecto el empuje se evalúa sobre el plano virtual vertical que pasa
+        por el extremo del talón, con altura total desde la base de la zapata
+        (AASHTO/CCP-14 Fig. 3.11.5.3-1, 11.6.3.2). Las alturas de aplicación se
+        miden desde la base de esa altura.
+        retained_height permite evaluar otra altura (p. ej. solo el fuste).
+        """
         
         phi = soil.friction_angle.to('radians').magnitude
         beta = geometry.backfill_slope.to('radians').magnitude
@@ -41,9 +59,7 @@ class CoulombEarthPressure:
         kp = math.tan(math.radians(45) + phi/2)**2
         
         # 2. Determinar altura de retención (H_ret)
-        h_ret = geometry.stem_height
-        if geometry.heel_length.magnitude > 0 and beta > 0:
-            h_ret += geometry.heel_length * math.tan(beta)
+        h_ret = retained_height if retained_height is not None else total_retained_height(geometry)
             
         # 3. Determinar efecto del nivel freático
         # Asumimos que la elevación de la base es 0 para la medición de hw

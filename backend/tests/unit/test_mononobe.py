@@ -87,11 +87,12 @@ def test_mononobe_okabe_active():
     calc = MononobeOkabeEarthPressure()
     result = calc.calculate(soil, geom, seismic)
     
-    # El estático era Ka = 1/3, Pa = 0.5 * 18 * 100 * 1/3 = 300 kN/m
-    assert result.soil_active_force.magnitude.magnitude == pytest.approx(300, abs=0.01)
+    # H = fuste 10.0 + zapata 0.5 = 10.5 m
+    # El estático es Ka = 1/3, Pa = 0.5 * 18 * 10.5^2 * 1/3 = 330.75 kN/m
+    assert result.soil_active_force.magnitude.magnitude == pytest.approx(330.75, abs=0.01)
     
     # El incremento dinámico debe existir
     assert result.seismic_active_force.magnitude.magnitude > 0
     
-    # Debe aplicarse a 0.6H = 6m
-    assert result.seismic_active_force.application_height.magnitude == pytest.approx(6.0, abs=0.01)
+    # Debe aplicarse a 0.6H = 6.3m desde la base de la zapata
+    assert result.seismic_active_force.application_height.magnitude == pytest.approx(6.3, abs=0.01)

@@ -7,7 +7,8 @@ from wall_engine.domain.loads.entities import Surcharge
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.seismic.parameters import SeismicParameters
 from wall_engine.domain.results.earth_pressure import EarthPressureResult, ForceComponent
-from wall_engine.calculations.earth_pressure.coulomb import CoulombEarthPressure
+from wall_engine.calculations.earth_pressure.coulomb import CoulombEarthPressure, total_retained_height
+from wall_engine.units.registry import Length
 
 class MononobeOkabeEarthPressure:
     
@@ -17,13 +18,14 @@ class MononobeOkabeEarthPressure:
         geometry: WallGeometry,
         seismic: SeismicParameters,
         surcharges: List[Surcharge] = None,
-        groundwater: Optional[Groundwater] = None
+        groundwater: Optional[Groundwater] = None,
+        retained_height: Optional[Length] = None
     ) -> EarthPressureResult:
         
         # 1. Primero calculamos el estático usando Coulomb como base
         # (Mononobe-Okabe asume estado activo límite, que es Coulomb).
         coulomb_calc = CoulombEarthPressure()
-        static_result = coulomb_calc.calculate(soil, geometry, surcharges or [], groundwater)
+        static_result = coulomb_calc.calculate(soil, geometry, surcharges or [], groundwater, retained_height)
         
         phi = soil.friction_angle.to('radians').magnitude
         beta = geometry.backfill_slope.to('radians').magnitude
@@ -63,9 +65,7 @@ class MononobeOkabeEarthPressure:
             kae = num_kae / den_kae
             
         # 3. Determinar altura de retención
-        h_ret = geometry.stem_height
-        if geometry.heel_length.magnitude > 0 and beta > 0:
-            h_ret += geometry.heel_length * math.tan(beta)
+        h_ret = retained_height if retained_height is not None else total_retained_height(geometry)
             
         # 4. Calcular fuerza TOTAL sísmica activa (P_AE)
         # Asumiendo condición sin agua o usando peso promedio (simplificación AASHTO)

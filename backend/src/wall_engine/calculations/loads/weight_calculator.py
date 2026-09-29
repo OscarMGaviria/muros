@@ -12,16 +12,24 @@ class WeightCalculator:
         gamma_c = wall.materials.concrete.density
         geom = wall.geometry
         
-        # 1. Zapata (Footing)
-        footing_vol = geom.footing_width * geom.footing_thickness # m^3 por metro lineal
-        footing_weight = (footing_vol * gamma_c).to("kN/m")
-        blocks.append(Block2D(
-            name="Footing",
-            load_type="DC",
-            weight=footing_weight,
-            x_centroid=geom.footing_width / 2,
-            y_centroid=geom.footing_thickness / 2
-        ))
+        # 1. Zapata (Footing), dividida en punta, bajo el fuste y talón para que
+        # el diseño de cada voladizo reciba su propio peso.
+        footing_parts = [
+            ("Footing (Toe)", Q_(0, "m"), geom.toe_length),
+            ("Footing (Under Stem)", geom.toe_length, geom.toe_length + geom.stem_thickness_base),
+            ("Footing (Heel)", geom.toe_length + geom.stem_thickness_base, geom.footing_width),
+        ]
+        for part_name, x_start, x_end in footing_parts:
+            part_width = x_end - x_start
+            if part_width.magnitude <= 0:
+                continue
+            blocks.append(Block2D(
+                name=part_name,
+                load_type="DC",
+                weight=(part_width * geom.footing_thickness * gamma_c).to("kN/m"),
+                x_centroid=(x_start + x_end) / 2,
+                y_centroid=geom.footing_thickness / 2
+            ))
         
         # 2. Fuste Rectangular (Stem Rectangular)
         stem_rect_vol = geom.stem_thickness_top * geom.stem_height

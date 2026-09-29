@@ -67,27 +67,28 @@ class StabilityCalculator:
         else:
             friction_cap = fy * math.tan(phi_base)
         
-        # Pasivo del dentellón y la punta (AASHTO permite usar el pasivo si se garantiza que el suelo no será removido)
-        # H_pasivo = recubrimiento + espesor_zapata + profundidad_dentellon
-        h_pasivo = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
-        if geometry.key_depth and geometry.key_depth.magnitude > 0:
-            h_pasivo += geometry.key_depth.to("m").magnitude
-            # Si hay dentellón, la falla por deslizamiento ocurre a través del suelo mismo, no concreto-suelo.
-            # Por lo tanto, podríamos usar math.tan(phi) puro, pero mantendremos delta_base (que por defecto es phi).
-            
+        # Factores de resistencia (AASHTO/CCP-14 Tabla 11.5.7-1 y 11.5.8):
+        # fricción φτ = 1.0; empuje pasivo φep = 0.50; en Evento Extremo ambos 1.0.
+        phi_tau = 1.0
+        phi_ep = 1.0 if is_extreme else 0.50
+
+        # Empuje pasivo (AASHTO 11.6.3.5): se desprecia el suelo frente a la punta
+        # y la zapata, porque puede ser removido. Solo se cuenta el pasivo movilizado
+        # por el dentellón, en la franja entre la base de la zapata y el fondo del
+        # dentellón, con profundidades medidas desde la superficie sobre la punta.
         passive_cap = 0.0
-        if h_pasivo > 0:
+        if d_key > 0:
             phi_f = foundation_soil.friction_angle.to("radians").magnitude
-            # K_p simplificado (Rankine o Coulomb asumiendo beta=0, delta=0 para pasivo seguro)
+            # K_p simplificado (Rankine, beta=0, delta=0 para pasivo seguro)
             k_p = (1 + math.sin(phi_f)) / (1 - math.sin(phi_f))
             gamma_f = foundation_soil.unit_weight.to("kN/m**3").magnitude
-            # Fuerza pasiva = 0.5 * gamma * H^2 * Kp
-            passive_cap = 0.5 * gamma_f * (h_pasivo ** 2) * k_p
-            
-            # En LRFD, el factor de resistencia (phi_tau) para el empuje pasivo suele ser 0.50 (muy castigado)
-            # Para deslizamiento por fricción suele ser 0.80.
-            # El CCP14Orchestrator se encargará de reportarlo. Aquí enviamos la capacidad nominal o ya factorizada.
-            # Asumiremos la suma de ambas capacidades (Fricción + Pasivo).
+            y1 = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
+            y2 = y1 + d_key
+            passive_cap = gamma_f * k_p * (y1 + y2) / 2 * (y2 - y1)
+
+        # Capacidad factorada: φτ·R_τ + φep·R_ep
+        friction_cap = phi_tau * friction_cap
+        passive_cap = phi_ep * passive_cap
             
         sliding_cap = friction_cap + passive_cap
         

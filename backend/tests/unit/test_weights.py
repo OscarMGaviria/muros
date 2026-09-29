@@ -47,8 +47,8 @@ def test_concrete_weights():
     calc = WeightCalculator()
     blocks = calc.calculate_concrete_blocks(wall)
     
-    # 3 bloques esperados: Zapata, Fuste Rect, Fuste Triang
-    assert len(blocks) == 3
+    # 5 bloques esperados: Zapata (punta, bajo fuste, talón), Fuste Rect, Fuste Triang
+    assert len(blocks) == 5
     
     # Peso total del concreto
     total_weight = sum(b.weight.to("kN/m").magnitude for b in blocks)
@@ -62,9 +62,19 @@ def test_concrete_weights():
     assert total_weight == pytest.approx(expected_weight)
     
     # Comprobar brazos de palanca (x) desde la punta
-    # Zapata C.G. = 1.75 m
-    footing = next(b for b in blocks if "Footing" in b.name)
-    assert footing.x_centroid.to("m").magnitude == 1.75
+    # Zapata: punta (0-1.0), bajo fuste (1.0-1.5), talón (1.5-3.5)
+    footing_toe = next(b for b in blocks if b.name == "Footing (Toe)")
+    footing_stem = next(b for b in blocks if b.name == "Footing (Under Stem)")
+    footing_heel = next(b for b in blocks if b.name == "Footing (Heel)")
+    assert footing_toe.x_centroid.to("m").magnitude == pytest.approx(0.5)
+    assert footing_stem.x_centroid.to("m").magnitude == pytest.approx(1.25)
+    assert footing_heel.x_centroid.to("m").magnitude == pytest.approx(2.5)
+    assert footing_heel.weight.to("kN/m").magnitude == pytest.approx(2.0 * 0.5 * 24)
+    # El conjunto conserva el centroide de la zapata completa (B/2 = 1.75 m)
+    footing_blocks = [footing_toe, footing_stem, footing_heel]
+    footing_weight = sum(b.weight.to("kN/m").magnitude for b in footing_blocks)
+    x_cg = sum(b.weight.to("kN/m").magnitude * b.x_centroid.to("m").magnitude for b in footing_blocks) / footing_weight
+    assert x_cg == pytest.approx(1.75)
     
     # Fuste rect C.G = 1.0 (toe) + 0.5 (base) - 0.15 (mitad tope) = 1.35m
     stem_rect = next(b for b in blocks if "Rectangular" in b.name)
@@ -103,8 +113,8 @@ def test_seismic_inertial_loads():
     calc = WeightCalculator()
     eq_loads = calc.calculate_seismic_inertial_loads(wall)
     
-    # 3 concrete blocks + 2 soil blocks = 5 EQ loads
-    assert len(eq_loads) == 5
+    # 5 concrete blocks + 2 soil blocks = 7 EQ loads
+    assert len(eq_loads) == 7
     
     total_kh_concrete_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIR" in b.name)
     total_kh_soil_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIS" in b.name)
@@ -117,6 +127,6 @@ def test_seismic_inertial_loads():
     
     # Ensure all are of type EQ and have positive force_x
     for eq_load in eq_loads:
-        assert eq_load.load_type == LoadType.EQ
+        assert eq_load.load_type == LoadType.EQ_I
         assert eq_load.force_x.magnitude > 0
         assert eq_load.force_y.magnitude == 0

@@ -71,15 +71,17 @@ def test_coulomb_with_groundwater():
     result_dry = calc.calculate(soil, geom, surcharges=[])
     result_wet = calc.calculate(soil, geom, surcharges=[], groundwater=water)
     
-    # En estado seco: Pa = 0.5 * 18 * 6^2 * 0.3333 = 108 kN/m
-    assert result_dry.soil_active_force.magnitude.to("kN/m").magnitude == pytest.approx(108.0, abs=0.1)
+    # Altura total = fuste 6.0 + zapata 0.5 = 6.5 m
+    # En estado seco: Pa = 0.5 * 18 * 6.5^2 * 0.3333 = 126.75 kN/m, aplicado a H/3
+    assert result_dry.soil_active_force.magnitude.to("kN/m").magnitude == pytest.approx(126.75, abs=0.1)
+    assert result_dry.soil_active_force.application_height.to("m").magnitude == pytest.approx(6.5 / 3)
     
-    # Con agua a la mitad:
-    # Arriba (3m): gamma_dry = 18. Pa1 = 0.5 * 18 * 3^2 * 1/3 = 27 kN/m
-    # Rectangulo abajo (3m): p = 18 * 3 * 1/3 = 18. Pa2 = 18 * 3 = 54 kN/m
+    # Con agua a 3 m de la base de la zapata:
+    # Arriba (3.5m): gamma_dry = 18. Pa1 = 0.5 * 18 * 3.5^2 * 1/3 = 36.75 kN/m
+    # Rectangulo abajo (3m): p = 18 * 3.5 * 1/3 = 21. Pa2 = 21 * 3 = 63 kN/m
     # Triangulo abajo (3m): gamma_sub = 20 - 9.80665 = 10.193. Pa3 = 0.5 * 10.193 * 3^2 * 1/3 = 15.29 kN/m
-    # Total Pa_wet = 27 + 54 + 15.29 = 96.29 kN/m
-    assert result_wet.soil_active_force.magnitude.to("kN/m").magnitude == pytest.approx(96.29, abs=0.1)
+    # Total Pa_wet = 36.75 + 63 + 15.29 = 115.04 kN/m
+    assert result_wet.soil_active_force.magnitude.to("kN/m").magnitude == pytest.approx(115.04, abs=0.1)
     
     # El empuje de la tierra es menor porque el agua le quitó peso efectivo.
     assert result_wet.soil_active_force.magnitude < result_dry.soil_active_force.magnitude
