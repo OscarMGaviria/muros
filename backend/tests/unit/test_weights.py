@@ -76,23 +76,28 @@ def test_concrete_weights():
     x_cg = sum(b.weight.to("kN/m").magnitude * b.x_centroid.to("m").magnitude for b in footing_blocks) / footing_weight
     assert x_cg == pytest.approx(1.75)
     
-    # Fuste rect C.G = 1.0 (toe) + 0.5 (base) - 0.15 (mitad tope) = 1.35m
+    # Cara frontal vertical y cara trasera inclinada (como el CDOT y el plano).
+    # Fuste rect C.G = 1.0 (punta) + 0.3/2 = 1.15 m
     stem_rect = next(b for b in blocks if "Rectangular" in b.name)
-    assert stem_rect.x_centroid.to("m").magnitude == 1.35
+    assert stem_rect.x_centroid.to("m").magnitude == pytest.approx(1.15)
     
-    # Fuste tri C.G = 1.0 + 2/3*(0.2) = 1.1333m
+    # Fuste tri C.G = 1.0 + 0.3 + 0.2/3 = 1.3667 m (a 1/3 de la base desde el rectángulo)
     stem_tri = next(b for b in blocks if "Triangular" in b.name)
-    assert stem_tri.x_centroid.to("m").magnitude == pytest.approx(1.133, abs=0.01)
+    assert stem_tri.x_centroid.to("m").magnitude == pytest.approx(1.3667, abs=0.001)
 
 def test_soil_weights():
     wall = create_test_wall()
     calc = WeightCalculator()
     blocks = calc.calculate_soil_blocks(wall)
     
-    # 2 bloques: Talón, Punta
-    assert len(blocks) == 2
+    # 3 bloques: talón, cuña sobre el fuste inclinado y punta
+    assert len(blocks) == 3
+    wedge = next(b for b in blocks if b.name == "Soil over Stem Batter")
+    assert wedge.weight.to("kN/m").magnitude == pytest.approx(0.5 * 0.2 * 5.0 * 18)
+    assert wedge.x_centroid.to("m").magnitude == pytest.approx(1.0 + 0.3 + 2 * 0.2 / 3)
+    assert wedge.y_centroid.to("m").magnitude == pytest.approx(0.5 + 2 * 5.0 / 3)
     
-    heel_block = next(b for b in blocks if "Heel" in b.name)
+    heel_block = next(b for b in blocks if b.name == "Soil over Heel (Rectangular)")
     toe_block = next(b for b in blocks if "Toe" in b.name)
     
     # Peso sobre talón = 2.0 * 5.0 * 18 = 180 kN/m
@@ -113,15 +118,15 @@ def test_seismic_inertial_loads():
     calc = WeightCalculator()
     eq_loads = calc.calculate_seismic_inertial_loads(wall)
     
-    # 5 bloques de concreto + suelo sobre el talón = 6 cargas EQ.
+    # 5 bloques de concreto + suelo sobre el talón + cuña sobre el fuste = 7 cargas EQ.
     # El relleno sobre la punta no forma parte de W_s (CCP-14 11.6.5.1).
-    assert len(eq_loads) == 6
+    assert len(eq_loads) == 7
     
     total_kh_concrete_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIR" in b.name)
     total_kh_soil_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIS" in b.name)
     
     concrete_weight = 90.0 # From previous test
-    soil_weight = 180.0 # Solo el suelo sobre el talón
+    soil_weight = 189.0 # Suelo sobre el talón (180) + cuña sobre el fuste (9)
     
     assert total_kh_concrete_weight == pytest.approx(concrete_weight * 0.2)
     assert total_kh_soil_weight == pytest.approx(soil_weight * 0.2)

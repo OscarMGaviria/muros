@@ -31,39 +31,27 @@ class WeightCalculator:
                 y_centroid=geom.footing_thickness / 2
             ))
         
-        # 2. Fuste Rectangular (Stem Rectangular)
-        stem_rect_vol = geom.stem_thickness_top * geom.stem_height
-        stem_rect_weight = (stem_rect_vol * gamma_c).to("kN/m")
-        # x: toe + parte triangular (si la cara inclinada está adelante) o atrás.
-        # Por simplicidad asumiremos que la cara vertical está atrás y la inclinada adelante, 
-        # o viceversa dependiendo de stem_batter.
-        # Para CCP-14 muros en voladizo estándar, la cara trasera es vertical.
-        # Así que el rectángulo está en la parte trasera del fuste.
-        x_stem_back = geom.toe_length + geom.stem_thickness_base
-        x_rect_centroid = x_stem_back - (geom.stem_thickness_top / 2)
-        
+        # 2. Fuste: cara frontal vertical y cara trasera inclinada (como el Ejemplo 11
+        # del CDOT y el plano de la aplicación). Rectángulo de espesor igual a la
+        # corona sobre la cara frontal, y triángulo detrás de él.
+        x_front = geom.toe_length
         blocks.append(Block2D(
             name="Stem (Rectangular)",
             load_type="DC",
-            weight=stem_rect_weight,
-            x_centroid=x_rect_centroid,
+            weight=(geom.stem_thickness_top * geom.stem_height * gamma_c).to("kN/m"),
+            x_centroid=x_front + geom.stem_thickness_top / 2,
             y_centroid=geom.footing_thickness + (geom.stem_height / 2)
         ))
         
-        # 3. Fuste Triangular (Stem Triangular)
+        # 3. Fuste Triangular: base abajo (Sb − St) y vértice en la corona;
+        # su centroide está a 1/3 de la base medido desde el rectángulo.
         diff_thickness = geom.stem_thickness_base - geom.stem_thickness_top
         if diff_thickness.magnitude > 0:
-            stem_tri_vol = 0.5 * diff_thickness * geom.stem_height
-            stem_tri_weight = (stem_tri_vol * gamma_c).to("kN/m")
-            # C.G de un triángulo es a 1/3 de su base. Si la parte ancha está abajo.
-            # En x, desde la punta del fuste (adelante)
-            x_tri_centroid = geom.toe_length + (diff_thickness * 2 / 3) # Asumiendo cara interior vertical
-            
             blocks.append(Block2D(
                 name="Stem (Triangular)",
                 load_type="DC",
-                weight=stem_tri_weight,
-                x_centroid=x_tri_centroid,
+                weight=(0.5 * diff_thickness * geom.stem_height * gamma_c).to("kN/m"),
+                x_centroid=x_front + geom.stem_thickness_top + diff_thickness / 3,
                 y_centroid=geom.footing_thickness + (geom.stem_height / 3)
             ))
             
@@ -123,6 +111,18 @@ class WeightCalculator:
                     y_centroid=geom.footing_thickness + geom.stem_height + (slope_height / 3)
                 ))
                 
+        # Cuña de suelo sobre la cara trasera inclinada del fuste (EV2 del CDOT):
+        # triángulo con base arriba (Sb − St) y vértice en la base del fuste.
+        diff_thickness = geom.stem_thickness_base - geom.stem_thickness_top
+        if diff_thickness.magnitude > 0:
+            blocks.append(Block2D(
+                name="Soil over Stem Batter",
+                load_type="EV",
+                weight=(0.5 * diff_thickness * geom.stem_height * gamma_s).to("kN/m"),
+                x_centroid=geom.toe_length + geom.stem_thickness_top + 2 * diff_thickness / 3,
+                y_centroid=geom.footing_thickness + 2 * geom.stem_height / 3
+            ))
+            
         # 3. Suelo sobre la punta
         if geom.toe_cover_soil.magnitude > 0 and geom.toe_length.magnitude > 0:
             toe_soil_vol = geom.toe_length * geom.toe_cover_soil

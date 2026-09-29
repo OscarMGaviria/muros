@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useWallStore } from '../stores/wallStore'
 import MathBlock from './MathBlock.vue'
 
@@ -15,6 +15,27 @@ const currentState = computed(() => states.value.find(s => s.name === activeStat
 watch(states, (list) => {
   if (list.length && !list.some(s => s.name === activeState.value)) activeState.value = list[0].name
 }, { immediate: true })
+
+// Abrir la memoria en una verificación concreta (desde el panel o el veredicto)
+const highlighted = ref(null)
+watch(() => store.memoriaFocus, async (f) => {
+  if (!f) return
+  if (states.value.some(s => s.name === f.state)) activeState.value = f.state
+  highlighted.value = `${f.state}-${f.kind}`
+  await nextTick()
+  document.getElementById(`chk-${f.state}-${f.kind}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  setTimeout(() => { if (highlighted.value === `${f.state}-${f.kind}`) highlighted.value = null }, 2500)
+}, { immediate: true })
+
+// Coeficiente activo de Coulomb sobre el plano vertical del talón (θ = 90°)
+const kaTex = computed(() => {
+  const p = store.params
+  return `K_a = \\frac{\\sin^2(90^\\circ + ${p.phi_fill}^\\circ)}{\\sin^2 90^\\circ\\,\\sin(90^\\circ - ${p.delta_fill}^\\circ)\\left[1 + \\sqrt{\\frac{\\sin(${p.phi_fill}^\\circ + ${p.delta_fill}^\\circ)\\sin(${p.phi_fill}^\\circ - ${p.beta_fill}^\\circ)}{\\sin(90^\\circ - ${p.delta_fill}^\\circ)\\sin(90^\\circ + ${p.beta_fill}^\\circ)}}\\right]^2} = ${fmt(store.results?.results?.earth_pressure?.ka, 3)}`
+})
+const kaText = computed(() => {
+  const p = store.params
+  return `Ka (Coulomb, θ = 90°, φ = ${p.phi_fill}°, δ = ${p.delta_fill}°, β = ${p.beta_fill}°) = ${fmt(store.results?.results?.earth_pressure?.ka, 3)}`
+})
 
 const fmt = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : Number(v).toFixed(d)
 
@@ -80,8 +101,7 @@ function exportLoadsCsv () {
       Calcule el muro para ver la memoria de cálculo.
     </div>
 
-    <!-- pr-20: deja libre la franja del botón flotante de vistas -->
-    <div v-else class="max-w-5xl mx-auto pl-6 pr-20 py-8 space-y-10 text-slate-800">
+    <div v-else class="max-w-5xl mx-auto px-6 py-8 space-y-10 text-slate-800">
       <header class="space-y-2">
         <p class="text-[11px] font-bold uppercase tracking-widest text-blue-600">Memoria de cálculo · CCP-14 / AASHTO LRFD</p>
         <h1 class="text-2xl font-extrabold">Cargas y estabilidad externa</h1>
@@ -98,6 +118,11 @@ function exportLoadsCsv () {
           <button @click="exportLoadsCsv" class="text-xs font-semibold px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500">
             Exportar a Excel (CSV)
           </button>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-lg px-4 py-3 space-y-1">
+          <p class="text-[11px] font-semibold text-slate-600">Coeficiente de empuje activo sobre el plano vertical del talón (CCP-14 Ec. 3.11.5.3-1)</p>
+          <MathBlock :tex="kaTex" :text="kaText" />
+          <p class="text-[11px] text-slate-400">El empuje se aplica en x = B, a H/3 de la base, con altura total H = fuste + zapata (+ talud sobre el talón). Su componente vertical es EH·sen δ.</p>
         </div>
         <div class="overflow-x-auto bg-white border border-slate-200 rounded-lg">
           <table class="w-full text-xs">
@@ -196,6 +221,8 @@ function exportLoadsCsv () {
         <p v-if="currentState?.note" class="text-xs text-slate-500 italic">{{ currentState.note }}</p>
 
         <article v-for="check in currentState?.checks || []" :key="currentState.name + check.kind"
+                 :id="`chk-${currentState.name}-${check.kind}`"
+                 :class="highlighted === `${currentState.name}-${check.kind}` ? 'ring-2 ring-blue-500' : ''"
                  class="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <header class="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
             <div>

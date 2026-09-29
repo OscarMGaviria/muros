@@ -12,7 +12,7 @@ from wall_engine.seismic.parameters import SeismicParameters
 from wall_engine.seismic.coefficients import horizontal_seismic_coefficient
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.codes.ccp14.orchestrator import CCP14Orchestrator
-from wall_engine.reporting.calculation_trace import build_trace
+from wall_engine.reporting.calculation_trace import build_trace, build_summary
 
 router = APIRouter()
 
@@ -120,6 +120,8 @@ def design_wall_ccp14(request: WallDesignRequest):
         # 2. Run Engine
         orch = CCP14Orchestrator()
         report = orch.design_wall(wall)
+        summary = build_summary(report)
+        report.status = summary["status"]
         
         # 3. Return a clean dict (Pydantic models will be implemented later, for now we return raw dict)
         # To avoid Pint Quantity serialization errors, we extract magnitudes manually for the critical results.
@@ -182,6 +184,8 @@ def design_wall_ccp14(request: WallDesignRequest):
                     "hydrostatic_kN_m": float(report.water.horizontal_force.magnitude.to("kN/m").magnitude) if report.water else 0.0
                 },
                 "warnings": report.warnings,
+                # Veredicto y verificaciones: peor relación D/C de cada una y el acero por sección
+                "summary": summary,
                 # Memoria de cálculo trazable: cargas, combinaciones y estabilidad
                 "trace": build_trace(wall, report),
                 "traffic_surcharge": {

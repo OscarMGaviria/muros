@@ -48,6 +48,7 @@ _BLOCK_LABELS = {
     "Soil over Heel (Saturated)": "Suelo saturado sobre el talón",
     "Soil over Heel (Slope)": "Cuña del talud sobre el talón",
     "Soil over Toe": "Relleno sobre la punta",
+    "Soil over Stem Batter": "Cuña de suelo sobre el fuste inclinado",
 }
 
 CHECK_LABELS = {
@@ -411,4 +412,65 @@ def build_trace(wall: Wall, report: WallDesignReport) -> dict:
         "loads": unfactored_loads_section(report.unfactored_loads),
         "limit_states": limit_states_section(report),
         "stability": stability_section(report),
+    }
+
+
+SECTION_LABELS = {"stem": "Fuste (base)", "toe": "Punta", "heel": "Talón", "key": "Dentellón"}
+
+
+def build_summary(report: WallDesignReport) -> dict:
+    """
+    Resumen de verificaciones para el panel de resultados: para cada verificación
+    la mayor relación demanda / capacidad entre los estados límite (y cuál gobierna),
+    el cortante de cada sección y el veredicto global.
+    """
+    checks = []
+    for kind in ("eccentricity", "sliding", "bearing"):
+        worst = None
+        for section in stability_section(report):
+            for c in section["checks"]:
+                if c["kind"] != kind or c["result"]["ratio"] is None:
+                    continue
+                if worst is None or c["result"]["ratio"] > worst[1]["result"]["ratio"]:
+                    worst = (section, c)
+        if worst:
+            section, c = worst
+            r = c["result"]
+            checks.append({
+                "id": kind, "group": "Estabilidad", "label": CHECK_LABELS[kind],
+                "state": section["name"], "state_label": section["label"],
+                "ratio": r["ratio"], "ok": r["ok"], "demand": r["demand"], "capacity": r["capacity"],
+                "demand_label": r["demand_label"], "capacity_label": r["capacity_label"], "unit": r["unit"],
+            })
+
+    sections = {}
+    sd = report.structural_design
+    for key in ("stem", "toe", "heel", "key"):
+        s = getattr(sd, key, None)
+        if s is None:
+            continue
+        vu, phi_vc = s.V_u.to("kN/m").magnitude, s.phi_V_c.to("kN/m").magnitude
+        sections[key] = {
+            "label": SECTION_LABELS[key],
+            "M_u": s.M_u.to("kN*m/m").magnitude, "M_serv": s.M_serv.to("kN*m/m").magnitude,
+            "thickness": s.thickness.to("m").magnitude, "d": s.d.to("m").magnitude,
+            "A_s_required": s.A_s_required, "A_s_min": s.A_s_min, "A_s_final": s.A_s_final,
+            "governed_by_minimum": s.A_s_final > s.A_s_required + 1e-9,
+            "s_max_crack_mm": s.s_max_crack, "f_ss_MPa": s.f_ss,
+            "V_u": vu, "phi_V_c": phi_vc,
+        }
+        checks.append({
+            "id": f"shear_{key}", "group": "Estructural", "label": f"Cortante {SECTION_LABELS[key].lower()}",
+            "state": "envelope", "state_label": "Envolvente de resistencia y sismo",
+            "ratio": vu / phi_vc if phi_vc > 0 else None, "ok": vu <= phi_vc,
+            "demand": vu, "capacity": phi_vc, "demand_label": "Vu", "capacity_label": "φVc", "unit": "kN/m",
+        })
+
+    failing = [c for c in checks if c["ok"] is False]
+    return {
+        "status": "NO CUMPLE" if failing else "CUMPLE",
+        "governing": max(checks, key=lambda c: c["ratio"] or 0) if checks else None,
+        "failing": [c["id"] for c in failing],
+        "checks": checks,
+        "sections": sections,
     }

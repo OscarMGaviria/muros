@@ -103,3 +103,20 @@ def test_every_step_has_readable_text(trace):
         for step in check["steps"]:
             assert "\\" not in step["text"], step["text"]
             assert f"{step['value']:.3f}" in step["text"]
+
+
+def test_summary_takes_worst_state_per_check():
+    from wall_engine.reporting.calculation_trace import build_summary
+    wall = make_cdot_wall(kh=0.2)
+    report = CCP14Orchestrator().design_wall(wall)
+    summary = build_summary(report)
+    trace = build_trace(wall, report)
+    by_id = {c["id"]: c for c in summary["checks"]}
+    ratios = [c["result"]["ratio"] for s in trace["stability"] for c in s["checks"] if c["kind"] == "sliding"]
+    assert by_id["sliding"]["ratio"] == pytest.approx(max(ratios))
+    # Sin dentellón el ejemplo no cumple a deslizamiento
+    assert summary["status"] == "NO CUMPLE" and "sliding" in summary["failing"]
+    # Acero de diseño = max(requerido, mínimo) en cada sección
+    for sec in summary["sections"].values():
+        assert sec["A_s_final"] == pytest.approx(max(sec["A_s_required"], sec["A_s_min"]))
+    assert {"shear_stem", "shear_toe", "shear_heel"} <= set(by_id)

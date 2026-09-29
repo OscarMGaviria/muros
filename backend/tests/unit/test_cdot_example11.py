@@ -115,8 +115,8 @@ def test_sliding_strength_ia(report):
     stab = report.stability_results["Strength I"]
     # ΣH = 1.50 (4.03) + 1.75 (1.07) = 7.92 kip/ft
     assert stab.sliding_demand.to("kN/m").magnitude == pytest.approx(kip_ft(7.92), rel=0.02)
-    # ΣV sin baranda ni EV2 = 0.90 (5.54) + 1.00 (10.73 + 0.72) + 1.50 (1.68) = 18.95 kip/ft
-    expected_cap = kip_ft(18.95) * math.tan(math.radians(20))
+    # ΣV del ejemplo sin la baranda = 19.62 − 0.90 (0.49) = 19.18 kip/ft
+    expected_cap = kip_ft(19.18) * math.tan(math.radians(20))
     assert stab.sliding_capacity.to("kN/m").magnitude == pytest.approx(expected_cap, rel=0.01)
     # Igual que en el ejemplo: sin dentellón no cumple (RR < ΣH)
     assert stab.sliding_ratio > 1.0
@@ -207,3 +207,16 @@ def test_heel_design_option_ignores_soil_reaction():
     assert heel.M_u.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(44.07 + 1.5 * ehv * arm), rel=0.01)
     assert heel.M_serv.to("kN*m/m").magnitude == pytest.approx(kip_ft_ft(32.33 + ehv * arm), rel=0.01)
     assert heel.M_u > with_reaction.M_u
+
+
+
+@pytest.mark.parametrize("name, value, arm", [
+    ("Stem (Rectangular)", 3.38, 3.50),     # DC1
+    ("Stem (Triangular)", 0.28, 4.33),      # DC2
+    ("Soil over Stem Batter", 0.24, 4.42),  # EV2
+])
+def test_stem_blocks_match_example(report, name, value, arm):
+    """Fuste con la cara trasera inclinada, como en el ejemplo: DC1, DC2 y EV2 con sus brazos."""
+    ld = load(report, name)
+    assert ld.force_y.to("kN/m").magnitude == pytest.approx(kip_ft(value), rel=0.02)
+    assert ld.x_application.to("m").magnitude == pytest.approx(ft(arm), abs=ft(0.01))
