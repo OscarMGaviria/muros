@@ -63,11 +63,15 @@ class CCP14Orchestrator:
         
         stem_forces_dict = {}
         footing_forces_dict = {}
+        # Trazabilidad: combinación que gobierna cada verificación y nº de permutaciones
+        stability_checks = {}
+        permutation_counts = {}
         
         for ls_name, ls in limit_states.items():
             perms = self.combinator.generate_permutations(all_loads, ls)
             if not perms:
                 continue
+            permutation_counts[ls_name] = len(perms)
                 
             # 3. Estabilidad de cada permutación. Cada verificación la gobierna
             # una permutación distinta (AASHTO C11.5.6):
@@ -79,8 +83,13 @@ class CCP14Orchestrator:
                 for perm in perms
             ]
             ecc_perm, ecc_stab = max(evaluated, key=lambda ps: abs(ps[1].eccentricity.to("m").magnitude))
-            _, slide_stab = max(evaluated, key=lambda ps: ps[1].sliding_ratio)
-            _, bear_stab = max(evaluated, key=lambda ps: max(ps[1].q_toe, ps[1].q_heel))
+            slide_perm, slide_stab = max(evaluated, key=lambda ps: ps[1].sliding_ratio)
+            contact_perm, bear_stab = max(evaluated, key=lambda ps: max(ps[1].q_toe, ps[1].q_heel))
+            stability_checks[ls_name] = {
+                "eccentricity": (ecc_perm, ecc_stab),
+                "sliding": (slide_perm, slide_stab),
+                "contact": (contact_perm, bear_stab),
+            }
             
             governing_loads[ls_name] = ecc_perm
             stability_res[ls_name] = replace(
@@ -97,11 +106,12 @@ class CCP14Orchestrator:
             # demanda / resistencia entre las permutaciones.
             if ls_name != "Service I":
                 embedment = (wall.geometry.toe_cover_soil + wall.geometry.footing_thickness).to("m").magnitude
-                bearing_res[ls_name] = max(
-                    (self.bear_calc.calculate(stab, perm, wall.geometry, wall.foundation_soil, embedment)
+                bearing_perm, bearing_res[ls_name] = max(
+                    ((perm, self.bear_calc.calculate(stab, perm, wall.geometry, wall.foundation_soil, embedment))
                      for perm, stab in evaluated),
-                    key=lambda br: br.bearing_ratio
+                    key=lambda pb: pb[1].bearing_ratio
                 )
+                stability_checks[ls_name]["bearing"] = (bearing_perm, bearing_res[ls_name])
             
             # 5. Cortante y Momento para Estructuras: envolvente de todas las permutaciones
             stem_candidates = []
@@ -156,7 +166,10 @@ class CCP14Orchestrator:
             traffic_heq_m=traffic_heq_m,
             traffic_qs_kPa=traffic_qs_kPa,
             water=water_res,
-            warnings=warnings
+            warnings=warnings,
+            limit_states=limit_states,
+            permutation_counts=permutation_counts,
+            stability_checks=stability_checks
         )
         
     def _generate_all_loads(self, wall: Wall):

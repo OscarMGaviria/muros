@@ -64,8 +64,13 @@ class StabilityCalculator:
         is_extreme = 'Extreme' in factored_load.limit_state_name
         if is_extreme:
             e_limit = b * (1 / 3 + gamma_eq * (0.4 - 1 / 3))
+            e_limit_rule = f"Evento extremo con γEQ = {gamma_eq:g}: interpolación entre B/3 (γEQ = 0) y 0.4B (γEQ = 1) — CCP-14 11.6.5.1"
+        elif is_rock:
+            e_limit = b / 4
+            e_limit_rule = "Cimentación en roca: B/4"
         else:
-            e_limit = (b / 4) if is_rock else (b / 3)
+            e_limit = b / 3
+            e_limit_rule = "Cimentación en suelo: resultante en los 2/3 centrales, e ≤ B/3 — CCP-14 11.6.3.3" 
         # Absoluto porque la resultante puede caer hacia el talón o la punta
         is_safe_ecc = abs(e_mag) <= e_limit
         
@@ -92,8 +97,10 @@ class StabilityCalculator:
             # R2 resbala sobre concreto-suelo (típicamente 0.8 phi o phi puro)
             # Asumiremos phi puro por cast-in-place AASHTO.
             friction_cap = (r1 * math.tan(phi_base) * math.cos(delta_sub)) + (r2 * math.tan(phi_base))
+            key_split = {"x_key": x_key, "delta_sub_deg": math.degrees(delta_sub), "R1": r1, "R2": r2}
         else:
             friction_cap = fy * math.tan(phi_base)
+            key_split = None
         
         # Factores de resistencia (AASHTO/CCP-14 Tabla 11.5.7-1 y 11.5.8):
         # fricción φτ = 1.0; empuje pasivo φep = 0.50; en Evento Extremo ambos 1.0.
@@ -104,6 +111,7 @@ class StabilityCalculator:
         passive_cap, _ = key_passive_resistance(geometry, foundation_soil)
 
         # Capacidad factorada: φτ·R_τ + φep·R_ep
+        friction_nominal, passive_nominal = friction_cap, passive_cap
         friction_cap = phi_tau * friction_cap
         passive_cap = phi_ep * passive_cap
             
@@ -118,9 +126,11 @@ class StabilityCalculator:
         # 3. Presiones de Contacto (Bearing)
         q_toe = 0.0
         q_heel = 0.0
+        distribution = ""
         
         if fy > 0:
             # Resultante dentro del tercio medio (toda la zapata en compresión)
+            distribution = "trapezoidal" if abs(e_mag) <= b / 6 else "triangular"
             if abs(e_mag) <= b / 6:
                 q_toe = (fy / b) * (1 + (6 * e_mag / b))
                 q_heel = (fy / b) * (1 - (6 * e_mag / b))
@@ -143,5 +153,20 @@ class StabilityCalculator:
             sliding_capacity=Q_(sliding_cap, "kN/m"),
             sliding_ratio=sliding_ratio,
             q_toe=q_toe,
-            q_heel=q_heel
+            q_heel=q_heel,
+            sum_V=fy,
+            sum_H=fx,
+            sum_M=m_toe,
+            x_resultant=x_0,
+            footing_width=b,
+            e_limit=e_limit,
+            e_limit_rule=e_limit_rule.strip(),
+            friction_nominal=friction_nominal,
+            passive_nominal=passive_nominal,
+            phi_tau=phi_tau,
+            phi_ep=phi_ep,
+            friction_angle_deg=math.degrees(phi_base),
+            key_depth=d_key,
+            key_split=key_split,
+            pressure_distribution=distribution
         )

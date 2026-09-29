@@ -5,6 +5,7 @@ import ParametersForm from './components/ParametersForm.vue'
 import Viewer2D from './components/Viewer2D.vue'
 import Viewer3D from './components/Viewer3D.vue'
 import ResultsPanel from './components/ResultsPanel.vue'
+import CalcReport from './components/CalcReport.vue'
 
 const store = useWallStore()
 const isMenuExpanded = ref(false)
@@ -97,6 +98,10 @@ onUnmounted(() => {
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" /></svg>
               </button>
               
+              <button @click="store.viewMode = 'Memoria'; isMenuExpanded = false" :class="store.viewMode === 'Memoria' ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-200/50' : 'text-slate-600 hover:bg-slate-100'" class="p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center" title="Memoria de cálculo">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+              </button>
+
               <button @click="store.viewMode = '3D'; isMenuExpanded = false" :class="store.viewMode === '3D' ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-200/50' : 'text-slate-600 hover:bg-slate-100'" class="p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center" title="Modelo 3D">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" /></svg>
               </button>
@@ -105,6 +110,7 @@ onUnmounted(() => {
         </div>
         
         <Viewer3D v-if="store.viewMode === '3D'" />
+        <CalcReport v-else-if="store.viewMode === 'Memoria'" />
         <Viewer2D v-else />
       </section>
 

@@ -90,6 +90,7 @@ class BearingCapacityCalculator:
         
         # 5. Verificación LRFD
         # Si el estudio geotécnico entrega la resistencia nominal, esa gobierna.
+        q_n_computed = q_n
         uses_geotech = foundation_soil.bearing_capacity is not None
         if uses_geotech:
             q_n = foundation_soil.bearing_capacity.to("kPa").magnitude
@@ -116,5 +117,16 @@ class BearingCapacityCalculator:
             q_resistance=q_resistance,
             bearing_ratio=ratio,
             is_safe=ratio <= 1.0,
-            uses_geotechnical_q_n=uses_geotech
+            uses_geotechnical_q_n=uses_geotech,
+            q_n_computed=q_n_computed,
+            embedment_depth=embedment_depth,
+            q_overburden=q_s,
+            cohesion=c,
+            friction_angle_deg=math.degrees(phi),
+            unit_weight=gamma,
+            sum_V=v,
+            sum_H=h,
+            eccentricity=e,
+            footing_width=b,
+            limit_state=factored_load.limit_state_name
         )

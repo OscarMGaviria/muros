@@ -12,6 +12,7 @@ from wall_engine.seismic.parameters import SeismicParameters
 from wall_engine.seismic.coefficients import horizontal_seismic_coefficient
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.codes.ccp14.orchestrator import CCP14Orchestrator
+from wall_engine.reporting.calculation_trace import build_trace
 
 router = APIRouter()
 
@@ -181,6 +182,8 @@ def design_wall_ccp14(request: WallDesignRequest):
                     "hydrostatic_kN_m": float(report.water.horizontal_force.magnitude.to("kN/m").magnitude) if report.water else 0.0
                 },
                 "warnings": report.warnings,
+                # Memoria de cálculo trazable: cargas, combinaciones y estabilidad
+                "trace": build_trace(wall, report),
                 "traffic_surcharge": {
                     "heq_m": report.traffic_heq_m,
                     "qs_kPa": report.traffic_qs_kPa
