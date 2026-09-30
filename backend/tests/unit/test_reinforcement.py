@@ -71,3 +71,28 @@ def test_reinforcement_calculator():
     # As_req debe ser muy bajo, por lo que dominará As_min = 9.0 cm2
     assert res.heel.A_s_required < 9.0
     assert res.heel.A_s_final == pytest.approx(9.0)
+
+
+def test_crack_control_uses_service_moment():
+    """El esfuerzo de servicio f_ss se calcula con el M_serv de Service I, no con Mu/1.5."""
+    geom = WallGeometry(
+        stem_height=Q_(5.0, "m"), stem_thickness_base=Q_(0.5, "m"), stem_thickness_top=Q_(0.3, "m"),
+        footing_width=Q_(3.0, "m"), footing_thickness=Q_(0.5, "m"), toe_length=Q_(0.5, "m"),
+        heel_length=Q_(2.0, "m"), toe_cover_soil=Q_(0, "m"), key_depth=None, key_width=None,
+        backfill_slope=Q_(0, "degrees"), stem_batter=Q_(0, "degrees"), back_face_angle=Q_(90, "degrees")
+    )
+    concrete = Concrete(Q_(28, "MPa"), Q_(24, "kN/m**3"), None)
+    steel = ReinforcementSteel(Q_(420, "MPa"), None, Q_(200000, "MPa"))
+    section = FootingSectionForces(Q_(50, "kN/m"), Q_(50, "kN*m/m"), Q_(20, "kN*m/m"), Q_(200, "kN/m"), Q_(150, "kN/m"), True)
+
+    def stem(ms):
+        return StemForcesResult(Q_(100, "kN/m"), Q_(200, "kN*m/m"), Q_(ms, "kN*m/m"), Q_(200, "kN/m"), Q_(150, "kN/m"), True)
+
+    calc = ReinforcementCalculator()
+    footing = FootingDesignResult(toe=section, heel=section, key=None)
+    low = calc.calculate(stem(100.0), footing, geom, concrete, steel, Q_(0.075, "m")).stem
+    high = calc.calculate(stem(150.0), footing, geom, concrete, steel, Q_(0.075, "m")).stem
+
+    assert low.M_serv.to("kN*m/m").magnitude == pytest.approx(100.0)
+    assert high.f_ss == pytest.approx(low.f_ss * 1.5)
+    assert high.s_max_crack < low.s_max_crack

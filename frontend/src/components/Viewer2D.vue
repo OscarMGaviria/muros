@@ -327,7 +327,8 @@ const actingLoads2D = computed(() => {
     if (isHorizontal) {
       startX = load.Fx > 0 ? cx - arrowLength : cx + arrowLength
     } else {
-      startY = load.Fy < 0 ? cy - arrowLength : cy + arrowLength
+      // Convención del motor: Fy > 0 hacia abajo (pesos), Fy < 0 hacia arriba (subpresión)
+      startY = load.Fy < 0 ? cy + arrowLength : cy - arrowLength
     }
     
     return {

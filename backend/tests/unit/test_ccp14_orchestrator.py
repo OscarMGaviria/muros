@@ -50,7 +50,8 @@ def test_ccp14_orchestrator_full_pipeline():
     assert report.wall_name == "Muro CCP14"
     assert "Strength I" in report.governing_loads
     assert "Service I" in report.governing_loads
-    assert "Extreme Event I" in report.governing_loads
+    assert "Extreme Event I-a" in report.governing_loads
+    assert "Extreme Event I-b" in report.governing_loads
     
     # Volcamiento (Excentricidad) para Strength
     stab = report.stability_results["Strength I"]

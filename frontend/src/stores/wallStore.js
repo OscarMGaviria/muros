@@ -4,8 +4,7 @@ import { Shape } from 'three'
 
 // Umbrales de seguridad (CCP-14 / AASHTO LRFD, Estado Límite de Resistencia)
 export const THRESHOLDS = {
-  slidingFS: 1.0,
-  bearingFS: 3.0
+  nearLimit: 0.9  // relación D/C a partir de la cual se marca "cerca del límite"
 }
 
 export const useWallStore = defineStore('wall', {
@@ -30,51 +29,95 @@ export const useWallStore = defineStore('wall', {
       phi_fill: 30.0,
       delta_fill: 20.0,
       beta_fill: 0.0,
+      gamma_sat_fill: 20.0, // Peso saturado del relleno (bajo el nivel freático)
       gamma_found: 20.0,
       phi_found: 35.0,
-      q_allow: 300.0,
+      c_found: 0.0,            // Cohesión del suelo de fundación (kPa)
+      qn_nominal: null,        // qn del estudio geotécnico (kPa); vacío = ecuación general
+      toe_cover: 0.5,          // Relleno sobre la punta (m)
+      cover_cm: 7.5,           // Recubrimiento del refuerzo (cm)
+      gamma_c: 24.0,           // Peso unitario del concreto (kN/m³)
       
       // Loads
       q_surcharge: 10.0,
+
+      // Sismo (CCP-14 11.6.5)
+      kh_mode: 'DIRECT', // 'DIRECT' (kh dado) o 'PGA' (kh = Fpga·PGA, 11.6.5.2)
       kh: 0.0,
+      pga: 0.25,
+      site_class: 'D',
+      fpga: null, // Opcional; si se deja vacío se toma de la Tabla 3.10.3.2-1
+      allow_displacement: false, // Desplazamiento de 25-50 mm aceptable: kh = 0.5·kh0
+      gamma_eq: 0.0, // Factor de LS en Evento Extremo I
+      pae_height_ratio: 1 / 3, // Altura de la resultante de P_AE: H/3, 0.4H o 0.5H
+
+      // Nivel freático
+      gw_enabled: false,
+      gw_elevation: 2.0, // Medido desde la base de la zapata (m)
+      gw_drained: false, // Relleno con drenaje: sin presiones de agua
+      gw_free_draining: false, // Relleno muy permeable: presión hidrodinámica en sismo
 
       // Sobrecarga vehicular (LS) - AASHTO Tabla 3.11.6.4
       traffic_orientation: 'PARALLEL', // 'PARALLEL' o 'PERPENDICULAR'
-      traffic_distance: 0.0 // Distancia del eje de carga al respaldo del muro (m)
+      traffic_distance: 0.0, // Distancia del eje de carga al respaldo del muro (m)
+
+      // Criterios de diseño
+      ignore_heel_reaction: false // Diseñar el talón sin la reacción del suelo (criterio CDOT)
     },
+    projectName: 'Muro en voladizo 1',
     results: null,
+    prevSummary: null,          // resumen del cálculo anterior, para mostrar qué cambió
+    memoriaFocus: null,         // { state, kind } a mostrar en la memoria
+    pendingCalc: false,
     isLoading: false,
     error: null,
     serverOnline: null,
-    viewMode: '2D'
+    viewMode: '2D'  // '2D' | 'Esquema' | '3D' | 'Memoria'
   }),
 
   getters: {
     thresholds: () => THRESHOLDS,
-    paramWarnings: (state) => {
+    // Errores de validación por campo, para mostrarlos junto a cada entrada
+    fieldErrors: (state) => {
       const p = state.params
-      const warnings = []
-      if (p.H <= 0) warnings.push('La altura del fuste (H) debe ser mayor a 0.')
-      if (p.B <= 0) warnings.push('La base de la zapata (B) debe ser mayor a 0.')
-      if (p.D_z <= 0) warnings.push('El espesor de zapata (Dz) debe ser mayor a 0.')
-      if (p.L_toe <= 0) warnings.push('La longitud de punta (L_toe) debe ser mayor a 0.')
-      if (p.stem_top <= 0) warnings.push('El espesor superior del fuste debe ser mayor a 0.')
-      if (p.stem_bot <= 0) warnings.push('El espesor inferior del fuste debe ser mayor a 0.')
-      if (p.fc <= 0) warnings.push("f'c debe ser mayor a 0.")
-      if (p.fy <= 0) warnings.push('fy debe ser mayor a 0.')
-      if (p.gamma_fill <= 0) warnings.push('El peso específico del relleno debe ser mayor a 0.')
-      if (p.q_allow <= 0) warnings.push('La capacidad portante admisible debe ser mayor a 0.')
-      const heel = p.B - p.L_toe - p.stem_bot
-      if (heel <= 0) warnings.push('Geometría inválida: L_toe + espesor de fuste inferior debe ser menor que B (talón negativo).')
-      return warnings
+      const e = {}
+      const pos = (k, msg) => { if (!(p[k] > 0)) e[k] = msg }
+      pos('H', 'Debe ser mayor que 0.')
+      pos('B', 'Debe ser mayor que 0.')
+      pos('D_z', 'Debe ser mayor que 0.')
+      pos('L_toe', 'Debe ser mayor que 0.')
+      pos('stem_top', 'Debe ser mayor que 0.')
+      pos('stem_bot', 'Debe ser mayor que 0.')
+      pos('fc', 'Debe ser mayor que 0.')
+      pos('fy', 'Debe ser mayor que 0.')
+      pos('gamma_fill', 'Debe ser mayor que 0.')
+      pos('gamma_found', 'Debe ser mayor que 0.')
+      pos('cover_cm', 'Debe ser mayor que 0.')
+      pos('gamma_c', 'Debe ser mayor que 0.')
+      if (p.stem_top > p.stem_bot) e.stem_top = 'La corona no puede ser más gruesa que la base del fuste.'
+      if (p.B - p.L_toe - p.stem_bot <= 0) e.B = `El talón resulta negativo: B debe ser mayor que punta + fuste (${(p.L_toe + p.stem_bot).toFixed(2)} m).`
+      if (p.D_d < 0) e.D_d = 'No puede ser negativa.'
+      if (p.D_d > 0 && !(p.W_d > 0)) e.W_d = 'Indique el ancho del dentellón.'
+      if (p.toe_cover < 0) e.toe_cover = 'No puede ser negativo.'
+      if (!(p.phi_fill > 0 && p.phi_fill < 50)) e.phi_fill = 'Valor fuera de rango (0° a 50°).'
+      if (!(p.phi_found > 0 && p.phi_found < 50)) e.phi_found = 'Valor fuera de rango (0° a 50°).'
+      if (p.delta_fill > p.phi_fill) e.delta_fill = 'δ no debería superar a φ del relleno.'
+      if (p.beta_fill >= p.phi_fill) e.beta_fill = 'β debe ser menor que φ del relleno.'
+      if (p.gamma_sat_fill < p.gamma_fill) e.gamma_sat_fill = 'Debería ser mayor o igual al peso seco.'
+      if (p.qn_nominal !== null && p.qn_nominal !== '' && !(p.qn_nominal > 0)) e.qn_nominal = 'Debe ser mayor que 0 o quedar vacío.'
+      if (p.kh_mode === 'PGA' && !(p.pga > 0)) e.pga = 'Ingrese el PGA.'
+      if (p.kh_mode === 'PGA' && p.site_class === 'F' && !(p.fpga > 0)) e.fpga = 'Perfil F: ingrese Fpga del estudio de respuesta de sitio.'
+      if (p.kh_mode === 'DIRECT' && p.kh < 0) e.kh = 'No puede ser negativo.'
+      if (p.kh > 0.6) e.kh = 'Valor inusualmente alto; revise.'
+      if (p.gw_enabled && p.gw_elevation < 0) e.gw_elevation = 'No puede ser negativo.'
+      return e
     },
-        theta: (state) => {
-      const dx = state.params.stem_top - state.params.stem_bot
-      const dy = state.params.H
-      let angle = Math.atan2(dy, dx) * 180 / Math.PI
-      if (angle < 0) angle += 360
-      return parseFloat(angle.toFixed(2))
+    paramWarnings () {
+      return Object.values(this.fieldErrors)
     },
+    heelLength: (state) => state.params.B - state.params.L_toe - state.params.stem_bot,
+    // El empuje se evalúa sobre el plano vertical que pasa por el talón: θ = 90°
+    theta: () => 90,
     geomPoints: (state) => {
       const H = state.params.H
       const B = state.params.B
@@ -172,16 +215,27 @@ export const useWallStore = defineStore('wall', {
   },
 
   actions: {
+    openMemoria(state, kind) {
+      this.memoriaFocus = { state, kind, t: Date.now() }
+      this.viewMode = 'Memoria'
+    },
     async checkHealth() {
       this.serverOnline = await checkServerHealth()
     },
     async calculate() {
-      if (this.isLoading) return
+      // Si llega un cambio mientras se calcula, se recalcula al terminar (no se pierde)
+      if (this.isLoading) { this.pendingCalc = true; return }
+      const blocking = ['H', 'B', 'D_z', 'L_toe', 'stem_top', 'stem_bot', 'fc', 'fy', 'gamma_fill', 'gamma_found', 'cover_cm', 'gamma_c', 'W_d', 'pga', 'fpga']
+        .filter(k => this.fieldErrors[k])
+      if (blocking.length) {
+        this.error = 'Corrija los campos marcados en rojo para calcular.'
+        return
+      }
       this.isLoading = true
       this.error = null
       try {
         const payload = {
-          name: 'Muro CCP-14',
+          name: this.projectName,
           geometry: {
             stem_height_m: this.params.H,
             stem_thickness_base_m: this.params.stem_bot,
@@ -190,7 +244,7 @@ export const useWallStore = defineStore('wall', {
             footing_thickness_m: this.params.D_z,
             toe_length_m: this.params.L_toe,
             heel_length_m: this.params.B - this.params.L_toe - this.params.stem_bot,
-            toe_cover_soil_m: 0.0,
+            toe_cover_soil_m: this.params.toe_cover,
             key_depth_m: this.params.D_d,
             key_width_m: this.params.W_d,
             backfill_slope_deg: this.params.beta_fill,
@@ -198,36 +252,55 @@ export const useWallStore = defineStore('wall', {
             back_face_angle_deg: this.theta
           },
           materials: {
-            concrete: { fc_MPa: this.params.fc, gamma_kN_m3: 24.0 },
+            concrete: { fc_MPa: this.params.fc, gamma_kN_m3: this.params.gamma_c },
             reinforcement: { fy_MPa: this.params.fy, Es_MPa: 200000.0 },
-            cover_cm: 7.5
+            cover_cm: this.params.cover_cm
           },
           backfill: {
             name: 'Relleno',
             gamma_kN_m3: this.params.gamma_fill,
             phi_deg: this.params.phi_fill,
               interface_friction_deg: this.params.delta_fill,
-            cohesion_kPa: 0.0
+            cohesion_kPa: 0.0,
+            gamma_sat_kN_m3: this.params.gamma_sat_fill
           },
           foundation_soil: {
             name: 'Fundación',
             gamma_kN_m3: this.params.gamma_found,
             phi_deg: this.params.phi_found,
-            cohesion_kPa: 0.0,
-            bearing_capacity_kPa: this.params.q_allow
+            cohesion_kPa: this.params.c_found,
+            nominal_bearing_resistance_kPa: this.params.qn_nominal > 0 ? this.params.qn_nominal : null
           },
           traffic: {
             orientation: this.params.traffic_orientation,
             distance_from_back_m: this.params.traffic_distance
           },
           seismic: {
+            kh_mode: this.params.kh_mode,
             kh: this.params.kh,
-            kv: 0.0
+            kv: 0.0,
+            pga: this.params.pga,
+            site_class: this.params.site_class,
+            fpga: this.params.fpga > 0 ? this.params.fpga : null,
+            allow_displacement: this.params.allow_displacement,
+            gamma_eq: this.params.gamma_eq,
+            pae_height_ratio: this.params.pae_height_ratio
+          },
+          groundwater: this.params.gw_enabled ? {
+            elevation_m: this.params.gw_elevation,
+            drainage_enabled: this.params.gw_drained,
+            free_draining_backfill: this.params.gw_free_draining
+          } : null,
+          design_options: {
+            ignore_heel_soil_reaction: this.params.ignore_heel_reaction
           }
         }
         
         const data = await calculateWallDesign(payload)
+        this.prevSummary = this.results?.results?.summary || null
         this.results = data
+        // El bloque de sobrecarga del plano muestra el qs real de la sobrecarga vehicular
+        this.params.q_surcharge = Math.round((data.results.traffic_surcharge?.qs_kPa || 0) * 10) / 10
         this.serverOnline = true
       } catch (error) {
         console.error("Error en el cálculo:", error)
@@ -242,6 +315,7 @@ export const useWallStore = defineStore('wall', {
         }
       } finally {
         this.isLoading = false
+        if (this.pendingCalc) { this.pendingCalc = false; this.calculate() }
       }
     }
   }

@@ -5,6 +5,29 @@ from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.domain.soil.entities import Soil
 from wall_engine.domain.wall.geometry import WallGeometry
 
+
+def key_passive_resistance(geometry: WallGeometry, foundation_soil: Soil) -> tuple[float, float]:
+    """
+    Empuje pasivo nominal frente al dentellón (AASHTO 11.6.3.5): se desprecia el
+    suelo sobre la punta y la zapata, y solo se cuenta la franja entre la base de
+    la zapata (y1) y el fondo del dentellón (y2), con profundidades medidas desde
+    la superficie sobre la punta. Kp de Rankine (beta = 0, delta = 0).
+    Retorna (Rep en kN/m, brazo z en m medido hacia abajo desde la base de la zapata).
+    """
+    d_key = geometry.key_depth.to("m").magnitude if geometry.key_depth else 0.0
+    if d_key <= 0:
+        return 0.0, 0.0
+    phi_f = foundation_soil.friction_angle.to("radians").magnitude
+    k_p = (1 + math.sin(phi_f)) / (1 - math.sin(phi_f))
+    gamma_f = foundation_soil.unit_weight.to("kN/m**3").magnitude
+    y1 = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
+    p1 = gamma_f * k_p * y1           # presión en la base de la zapata
+    dp = gamma_f * k_p * d_key        # incremento hasta el fondo del dentellón
+    rep = p1 * d_key + 0.5 * dp * d_key
+    z = (p1 * d_key * d_key / 2 + 0.5 * dp * d_key * (2 * d_key / 3)) / rep
+    return rep, z
+
+
 class StabilityCalculator:
     
     def calculate(
@@ -12,7 +35,8 @@ class StabilityCalculator:
         factored_load: FactoredResult,
         geometry: WallGeometry,
         foundation_soil: Soil,
-        is_rock: bool = False
+        is_rock: bool = False,
+        gamma_eq: float = 1.0
     ) -> StabilityResult:
         
         b = geometry.footing_width.to("m").magnitude
@@ -33,11 +57,20 @@ class StabilityCalculator:
             
         e = Q_(e_mag, "m")
         
-        # Límite de excentricidad típico: B/3 para suelo, B/4 para roca (AASHTO/CCP-14)
-        # En LRFD extremo puede ser B/3 o B/2 dependiendo del estado límite, pero
-        # tomaremos B/3 como estándar conservador general (se puede ajustar luego por estado límite).
+        # Límite de excentricidad: B/3 para suelo, B/4 para roca (AASHTO/CCP-14).
+        # En sismo (11.6.5.1) la resultante debe quedar en los 2/3 centrales de la
+        # base con γEQ = 0 (e ≤ B/3) y en los 8/10 centrales con γEQ = 1 (e ≤ 0.4B),
+        # interpolando linealmente para valores intermedios.
         is_extreme = 'Extreme' in factored_load.limit_state_name
-        e_limit = (0.4 * b) if is_extreme else ((b / 4) if is_rock else (b / 3))
+        if is_extreme:
+            e_limit = b * (1 / 3 + gamma_eq * (0.4 - 1 / 3))
+            e_limit_rule = f"Evento extremo con γEQ = {gamma_eq:g}: interpolación entre B/3 (γEQ = 0) y 0.4B (γEQ = 1) — CCP-14 11.6.5.1"
+        elif is_rock:
+            e_limit = b / 4
+            e_limit_rule = "Cimentación en roca: B/4"
+        else:
+            e_limit = b / 3
+            e_limit_rule = "Cimentación en suelo: resultante en los 2/3 centrales, e ≤ B/3 — CCP-14 11.6.3.3" 
         # Absoluto porque la resultante puede caer hacia el talón o la punta
         is_safe_ecc = abs(e_mag) <= e_limit
         
@@ -64,30 +97,23 @@ class StabilityCalculator:
             # R2 resbala sobre concreto-suelo (típicamente 0.8 phi o phi puro)
             # Asumiremos phi puro por cast-in-place AASHTO.
             friction_cap = (r1 * math.tan(phi_base) * math.cos(delta_sub)) + (r2 * math.tan(phi_base))
+            key_split = {"x_key": x_key, "delta_sub_deg": math.degrees(delta_sub), "R1": r1, "R2": r2}
         else:
             friction_cap = fy * math.tan(phi_base)
+            key_split = None
         
-        # Pasivo del dentellón y la punta (AASHTO permite usar el pasivo si se garantiza que el suelo no será removido)
-        # H_pasivo = recubrimiento + espesor_zapata + profundidad_dentellon
-        h_pasivo = geometry.toe_cover_soil.to("m").magnitude + geometry.footing_thickness.to("m").magnitude
-        if geometry.key_depth and geometry.key_depth.magnitude > 0:
-            h_pasivo += geometry.key_depth.to("m").magnitude
-            # Si hay dentellón, la falla por deslizamiento ocurre a través del suelo mismo, no concreto-suelo.
-            # Por lo tanto, podríamos usar math.tan(phi) puro, pero mantendremos delta_base (que por defecto es phi).
-            
-        passive_cap = 0.0
-        if h_pasivo > 0:
-            phi_f = foundation_soil.friction_angle.to("radians").magnitude
-            # K_p simplificado (Rankine o Coulomb asumiendo beta=0, delta=0 para pasivo seguro)
-            k_p = (1 + math.sin(phi_f)) / (1 - math.sin(phi_f))
-            gamma_f = foundation_soil.unit_weight.to("kN/m**3").magnitude
-            # Fuerza pasiva = 0.5 * gamma * H^2 * Kp
-            passive_cap = 0.5 * gamma_f * (h_pasivo ** 2) * k_p
-            
-            # En LRFD, el factor de resistencia (phi_tau) para el empuje pasivo suele ser 0.50 (muy castigado)
-            # Para deslizamiento por fricción suele ser 0.80.
-            # El CCP14Orchestrator se encargará de reportarlo. Aquí enviamos la capacidad nominal o ya factorizada.
-            # Asumiremos la suma de ambas capacidades (Fricción + Pasivo).
+        # Factores de resistencia (AASHTO/CCP-14 Tabla 11.5.7-1 y 11.5.8):
+        # fricción φτ = 1.0; empuje pasivo φep = 0.50; en Evento Extremo ambos 1.0.
+        phi_tau = 1.0
+        phi_ep = 1.0 if is_extreme else 0.50
+
+        # Empuje pasivo: solo el movilizado por el dentellón (AASHTO 11.6.3.5)
+        passive_cap, _ = key_passive_resistance(geometry, foundation_soil)
+
+        # Capacidad factorada: φτ·R_τ + φep·R_ep
+        friction_nominal, passive_nominal = friction_cap, passive_cap
+        friction_cap = phi_tau * friction_cap
+        passive_cap = phi_ep * passive_cap
             
         sliding_cap = friction_cap + passive_cap
         
@@ -100,9 +126,11 @@ class StabilityCalculator:
         # 3. Presiones de Contacto (Bearing)
         q_toe = 0.0
         q_heel = 0.0
+        distribution = ""
         
         if fy > 0:
             # Resultante dentro del tercio medio (toda la zapata en compresión)
+            distribution = "trapezoidal" if abs(e_mag) <= b / 6 else "triangular"
             if abs(e_mag) <= b / 6:
                 q_toe = (fy / b) * (1 + (6 * e_mag / b))
                 q_heel = (fy / b) * (1 - (6 * e_mag / b))
@@ -125,5 +153,20 @@ class StabilityCalculator:
             sliding_capacity=Q_(sliding_cap, "kN/m"),
             sliding_ratio=sliding_ratio,
             q_toe=q_toe,
-            q_heel=q_heel
+            q_heel=q_heel,
+            sum_V=fy,
+            sum_H=fx,
+            sum_M=m_toe,
+            x_resultant=x_0,
+            footing_width=b,
+            e_limit=e_limit,
+            e_limit_rule=e_limit_rule.strip(),
+            friction_nominal=friction_nominal,
+            passive_nominal=passive_nominal,
+            phi_tau=phi_tau,
+            phi_ep=phi_ep,
+            friction_angle_deg=math.degrees(phi_base),
+            key_depth=d_key,
+            key_split=key_split,
+            pressure_distribution=distribution
         )

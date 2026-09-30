@@ -47,8 +47,8 @@ def test_concrete_weights():
     calc = WeightCalculator()
     blocks = calc.calculate_concrete_blocks(wall)
     
-    # 3 bloques esperados: Zapata, Fuste Rect, Fuste Triang
-    assert len(blocks) == 3
+    # 5 bloques esperados: Zapata (punta, bajo fuste, talón), Fuste Rect, Fuste Triang
+    assert len(blocks) == 5
     
     # Peso total del concreto
     total_weight = sum(b.weight.to("kN/m").magnitude for b in blocks)
@@ -62,27 +62,42 @@ def test_concrete_weights():
     assert total_weight == pytest.approx(expected_weight)
     
     # Comprobar brazos de palanca (x) desde la punta
-    # Zapata C.G. = 1.75 m
-    footing = next(b for b in blocks if "Footing" in b.name)
-    assert footing.x_centroid.to("m").magnitude == 1.75
+    # Zapata: punta (0-1.0), bajo fuste (1.0-1.5), talón (1.5-3.5)
+    footing_toe = next(b for b in blocks if b.name == "Footing (Toe)")
+    footing_stem = next(b for b in blocks if b.name == "Footing (Under Stem)")
+    footing_heel = next(b for b in blocks if b.name == "Footing (Heel)")
+    assert footing_toe.x_centroid.to("m").magnitude == pytest.approx(0.5)
+    assert footing_stem.x_centroid.to("m").magnitude == pytest.approx(1.25)
+    assert footing_heel.x_centroid.to("m").magnitude == pytest.approx(2.5)
+    assert footing_heel.weight.to("kN/m").magnitude == pytest.approx(2.0 * 0.5 * 24)
+    # El conjunto conserva el centroide de la zapata completa (B/2 = 1.75 m)
+    footing_blocks = [footing_toe, footing_stem, footing_heel]
+    footing_weight = sum(b.weight.to("kN/m").magnitude for b in footing_blocks)
+    x_cg = sum(b.weight.to("kN/m").magnitude * b.x_centroid.to("m").magnitude for b in footing_blocks) / footing_weight
+    assert x_cg == pytest.approx(1.75)
     
-    # Fuste rect C.G = 1.0 (toe) + 0.5 (base) - 0.15 (mitad tope) = 1.35m
+    # Cara frontal vertical y cara trasera inclinada (como el CDOT y el plano).
+    # Fuste rect C.G = 1.0 (punta) + 0.3/2 = 1.15 m
     stem_rect = next(b for b in blocks if "Rectangular" in b.name)
-    assert stem_rect.x_centroid.to("m").magnitude == 1.35
+    assert stem_rect.x_centroid.to("m").magnitude == pytest.approx(1.15)
     
-    # Fuste tri C.G = 1.0 + 2/3*(0.2) = 1.1333m
+    # Fuste tri C.G = 1.0 + 0.3 + 0.2/3 = 1.3667 m (a 1/3 de la base desde el rectángulo)
     stem_tri = next(b for b in blocks if "Triangular" in b.name)
-    assert stem_tri.x_centroid.to("m").magnitude == pytest.approx(1.133, abs=0.01)
+    assert stem_tri.x_centroid.to("m").magnitude == pytest.approx(1.3667, abs=0.001)
 
 def test_soil_weights():
     wall = create_test_wall()
     calc = WeightCalculator()
     blocks = calc.calculate_soil_blocks(wall)
     
-    # 2 bloques: Talón, Punta
-    assert len(blocks) == 2
+    # 3 bloques: talón, cuña sobre el fuste inclinado y punta
+    assert len(blocks) == 3
+    wedge = next(b for b in blocks if b.name == "Soil over Stem Batter")
+    assert wedge.weight.to("kN/m").magnitude == pytest.approx(0.5 * 0.2 * 5.0 * 18)
+    assert wedge.x_centroid.to("m").magnitude == pytest.approx(1.0 + 0.3 + 2 * 0.2 / 3)
+    assert wedge.y_centroid.to("m").magnitude == pytest.approx(0.5 + 2 * 5.0 / 3)
     
-    heel_block = next(b for b in blocks if "Heel" in b.name)
+    heel_block = next(b for b in blocks if b.name == "Soil over Heel (Rectangular)")
     toe_block = next(b for b in blocks if "Toe" in b.name)
     
     # Peso sobre talón = 2.0 * 5.0 * 18 = 180 kN/m
@@ -103,20 +118,56 @@ def test_seismic_inertial_loads():
     calc = WeightCalculator()
     eq_loads = calc.calculate_seismic_inertial_loads(wall)
     
-    # 3 concrete blocks + 2 soil blocks = 5 EQ loads
-    assert len(eq_loads) == 5
+    # 5 bloques de concreto + suelo sobre el talón + cuña sobre el fuste = 7 cargas EQ.
+    # El relleno sobre la punta no forma parte de W_s (CCP-14 11.6.5.1).
+    assert len(eq_loads) == 7
     
     total_kh_concrete_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIR" in b.name)
     total_kh_soil_weight = sum(b.force_x.to("kN/m").magnitude for b in eq_loads if "PIS" in b.name)
     
     concrete_weight = 90.0 # From previous test
-    soil_weight = 189.0 # From previous test (180 + 9)
+    soil_weight = 189.0 # Suelo sobre el talón (180) + cuña sobre el fuste (9)
     
     assert total_kh_concrete_weight == pytest.approx(concrete_weight * 0.2)
     assert total_kh_soil_weight == pytest.approx(soil_weight * 0.2)
     
     # Ensure all are of type EQ and have positive force_x
     for eq_load in eq_loads:
-        assert eq_load.load_type == LoadType.EQ
+        assert eq_load.load_type == LoadType.EQ_I
         assert eq_load.force_x.magnitude > 0
         assert eq_load.force_y.magnitude == 0
+
+
+def test_slope_soil_centroid():
+    """La cuña del talud crece desde el fuste: su C.G. está a 2/3 del talón desde el fuste."""
+    from dataclasses import replace
+    wall = create_test_wall()
+    wall.geometry = replace(wall.geometry, backfill_slope=Q_(20, "degrees"))
+    blocks = WeightCalculator().calculate_soil_blocks(wall)
+    slope = next(b for b in blocks if "Slope" in b.name)
+    # x = punta 1.0 + fuste 0.5 + 2/3 * talón 2.0
+    assert slope.x_centroid.to("m").magnitude == pytest.approx(1.0 + 0.5 + 2.0 * 2 / 3)
+    h = 2.0 * math.tan(math.radians(20))
+    assert slope.weight.to("kN/m").magnitude == pytest.approx(0.5 * 2.0 * h * 18)
+
+
+
+def test_saturated_soil_over_heel():
+    """Bajo el nivel freático el suelo sobre el talón pesa con gamma_sat (incluye el agua)."""
+    from dataclasses import replace
+    from wall_engine.domain.water.entities import Groundwater
+    wall = create_test_wall()
+    wall.backfill = replace(wall.backfill, saturated_unit_weight=Q_(20, "kN/m**3"))
+    # Agua a 2.5 m de la base: 2.0 m saturados sobre la zapata (0.5 m) y 3.0 m secos
+    wall.groundwater = Groundwater(elevation=Q_(2.5, "m"), drainage_enabled=False, drainage_type=None)
+    blocks = WeightCalculator().calculate_soil_blocks(wall)
+    sat = next(b for b in blocks if b.name == "Soil over Heel (Saturated)")
+    dry = next(b for b in blocks if b.name == "Soil over Heel (Rectangular)")
+    assert sat.weight.to("kN/m").magnitude == pytest.approx(2.0 * 2.0 * 20)
+    assert dry.weight.to("kN/m").magnitude == pytest.approx(2.0 * 3.0 * 18)
+    assert sat.y_centroid.to("m").magnitude == pytest.approx(1.5)
+    
+    # Con drenaje no hay suelo saturado
+    wall.groundwater = replace(wall.groundwater, drainage_enabled=True)
+    names = [b.name for b in WeightCalculator().calculate_soil_blocks(wall)]
+    assert "Soil over Heel (Saturated)" not in names

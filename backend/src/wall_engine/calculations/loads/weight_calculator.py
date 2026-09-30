@@ -12,50 +12,46 @@ class WeightCalculator:
         gamma_c = wall.materials.concrete.density
         geom = wall.geometry
         
-        # 1. Zapata (Footing)
-        footing_vol = geom.footing_width * geom.footing_thickness # m^3 por metro lineal
-        footing_weight = (footing_vol * gamma_c).to("kN/m")
-        blocks.append(Block2D(
-            name="Footing",
-            load_type="DC",
-            weight=footing_weight,
-            x_centroid=geom.footing_width / 2,
-            y_centroid=geom.footing_thickness / 2
-        ))
+        # 1. Zapata (Footing), dividida en punta, bajo el fuste y talón para que
+        # el diseño de cada voladizo reciba su propio peso.
+        footing_parts = [
+            ("Footing (Toe)", Q_(0, "m"), geom.toe_length),
+            ("Footing (Under Stem)", geom.toe_length, geom.toe_length + geom.stem_thickness_base),
+            ("Footing (Heel)", geom.toe_length + geom.stem_thickness_base, geom.footing_width),
+        ]
+        for part_name, x_start, x_end in footing_parts:
+            part_width = x_end - x_start
+            if part_width.magnitude <= 0:
+                continue
+            blocks.append(Block2D(
+                name=part_name,
+                load_type="DC",
+                weight=(part_width * geom.footing_thickness * gamma_c).to("kN/m"),
+                x_centroid=(x_start + x_end) / 2,
+                y_centroid=geom.footing_thickness / 2
+            ))
         
-        # 2. Fuste Rectangular (Stem Rectangular)
-        stem_rect_vol = geom.stem_thickness_top * geom.stem_height
-        stem_rect_weight = (stem_rect_vol * gamma_c).to("kN/m")
-        # x: toe + parte triangular (si la cara inclinada está adelante) o atrás.
-        # Por simplicidad asumiremos que la cara vertical está atrás y la inclinada adelante, 
-        # o viceversa dependiendo de stem_batter.
-        # Para CCP-14 muros en voladizo estándar, la cara trasera es vertical.
-        # Así que el rectángulo está en la parte trasera del fuste.
-        x_stem_back = geom.toe_length + geom.stem_thickness_base
-        x_rect_centroid = x_stem_back - (geom.stem_thickness_top / 2)
-        
+        # 2. Fuste: cara frontal vertical y cara trasera inclinada (como el Ejemplo 11
+        # del CDOT y el plano de la aplicación). Rectángulo de espesor igual a la
+        # corona sobre la cara frontal, y triángulo detrás de él.
+        x_front = geom.toe_length
         blocks.append(Block2D(
             name="Stem (Rectangular)",
             load_type="DC",
-            weight=stem_rect_weight,
-            x_centroid=x_rect_centroid,
+            weight=(geom.stem_thickness_top * geom.stem_height * gamma_c).to("kN/m"),
+            x_centroid=x_front + geom.stem_thickness_top / 2,
             y_centroid=geom.footing_thickness + (geom.stem_height / 2)
         ))
         
-        # 3. Fuste Triangular (Stem Triangular)
+        # 3. Fuste Triangular: base abajo (Sb − St) y vértice en la corona;
+        # su centroide está a 1/3 de la base medido desde el rectángulo.
         diff_thickness = geom.stem_thickness_base - geom.stem_thickness_top
         if diff_thickness.magnitude > 0:
-            stem_tri_vol = 0.5 * diff_thickness * geom.stem_height
-            stem_tri_weight = (stem_tri_vol * gamma_c).to("kN/m")
-            # C.G de un triángulo es a 1/3 de su base. Si la parte ancha está abajo.
-            # En x, desde la punta del fuste (adelante)
-            x_tri_centroid = geom.toe_length + (diff_thickness * 2 / 3) # Asumiendo cara interior vertical
-            
             blocks.append(Block2D(
                 name="Stem (Triangular)",
                 load_type="DC",
-                weight=stem_tri_weight,
-                x_centroid=x_tri_centroid,
+                weight=(0.5 * diff_thickness * geom.stem_height * gamma_c).to("kN/m"),
+                x_centroid=x_front + geom.stem_thickness_top + diff_thickness / 3,
                 y_centroid=geom.footing_thickness + (geom.stem_height / 3)
             ))
             
@@ -67,19 +63,35 @@ class WeightCalculator:
         geom = wall.geometry
         gamma_s = wall.backfill.unit_weight
         
-        # 1. Suelo sobre el talón (Rectangular)
+        # 1. Suelo sobre el talón (Rectangular). Bajo el nivel freático (medido desde
+        # la base de la zapata, sin drenaje) se usa el peso saturado, que ya
+        # incluye el agua de los poros.
         if geom.heel_length.magnitude > 0:
-            heel_soil_vol = geom.heel_length * geom.stem_height
-            heel_soil_weight = (heel_soil_vol * gamma_s).to("kN/m")
             x_heel_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length / 2)
+            y_bottom = geom.footing_thickness
+            y_top = geom.footing_thickness + geom.stem_height
+            y_water = y_bottom
+            gw = wall.groundwater
+            if gw is not None and not gw.drainage_enabled:
+                y_water = min(max(gw.elevation, y_bottom), y_top)
             
-            blocks.append(Block2D(
-                name="Soil over Heel (Rectangular)",
-                load_type="EV",
-                weight=heel_soil_weight,
-                x_centroid=x_heel_centroid,
-                y_centroid=geom.footing_thickness + (geom.stem_height / 2)
-            ))
+            if (y_water - y_bottom).magnitude > 0:
+                gamma_sat = wall.backfill.saturated_unit_weight or gamma_s
+                blocks.append(Block2D(
+                    name="Soil over Heel (Saturated)",
+                    load_type="EV",
+                    weight=(geom.heel_length * (y_water - y_bottom) * gamma_sat).to("kN/m"),
+                    x_centroid=x_heel_centroid,
+                    y_centroid=(y_bottom + y_water) / 2
+                ))
+            if (y_top - y_water).magnitude > 0:
+                blocks.append(Block2D(
+                    name="Soil over Heel (Rectangular)",
+                    load_type="EV",
+                    weight=(geom.heel_length * (y_top - y_water) * gamma_s).to("kN/m"),
+                    x_centroid=x_heel_centroid,
+                    y_centroid=(y_water + y_top) / 2
+                ))
             
             # 2. Suelo sobre el talón (Triangular por el talud)
             beta = geom.backfill_slope.to('radians').magnitude
@@ -87,8 +99,9 @@ class WeightCalculator:
                 slope_height = geom.heel_length * math.tan(beta)
                 slope_vol = 0.5 * geom.heel_length * slope_height
                 slope_weight = (slope_vol * gamma_s).to("kN/m")
-                # C.G. a 1/3 del talón desde el inicio del talud
-                x_slope_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length / 3)
+                # La cuña crece desde la cara del fuste (altura 0) hasta el extremo
+                # del talón: su C.G. está a 2/3 del talón medido desde el fuste.
+                x_slope_centroid = geom.toe_length + geom.stem_thickness_base + (geom.heel_length * 2 / 3)
                 
                 blocks.append(Block2D(
                     name="Soil over Heel (Slope)",
@@ -98,6 +111,18 @@ class WeightCalculator:
                     y_centroid=geom.footing_thickness + geom.stem_height + (slope_height / 3)
                 ))
                 
+        # Cuña de suelo sobre la cara trasera inclinada del fuste (EV2 del CDOT):
+        # triángulo con base arriba (Sb − St) y vértice en la base del fuste.
+        diff_thickness = geom.stem_thickness_base - geom.stem_thickness_top
+        if diff_thickness.magnitude > 0:
+            blocks.append(Block2D(
+                name="Soil over Stem Batter",
+                load_type="EV",
+                weight=(0.5 * diff_thickness * geom.stem_height * gamma_s).to("kN/m"),
+                x_centroid=geom.toe_length + geom.stem_thickness_top + 2 * diff_thickness / 3,
+                y_centroid=geom.footing_thickness + 2 * geom.stem_height / 3
+            ))
+            
         # 3. Suelo sobre la punta
         if geom.toe_cover_soil.magnitude > 0 and geom.toe_length.magnitude > 0:
             toe_soil_vol = geom.toe_length * geom.toe_cover_soil
@@ -136,8 +161,11 @@ class WeightCalculator:
                 y_application=b.y_centroid
             ))
             
-        # PIS: Fuerzas inerciales del suelo (Talón y Punta)
+        # PIS: inercia del suelo inmediatamente encima del muro, incluido el talón
+        # (CCP-14 11.6.5.1, W_s). El relleno sobre la punta no forma parte de W_s.
         for b in soil_blocks:
+            if "Toe" in b.name:
+                continue
             f_eq = b.weight * kh
             eq_loads.append(GenericLoad(
                 name=f"Inertia PIS ({b.name})",

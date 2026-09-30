@@ -24,7 +24,7 @@ class LSSurchargeCalculator:
         
         # Table 3.11.6.4-2: Walls parallel to traffic (Distance 0.0 mm)
         self.table_parallel_0_h = [1500, 3000, 6000]
-        self.table_parallel_0_heq = [1500, 1000, 600]
+        self.table_parallel_0_heq = [1500, 1050, 600]
         
         # Table 3.11.6.4-2: Walls parallel to traffic (Distance >= 300 mm)
         self.table_parallel_300_h = [1500, 3000, 6000]

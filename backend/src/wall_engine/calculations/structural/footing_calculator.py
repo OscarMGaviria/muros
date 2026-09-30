@@ -7,16 +7,14 @@ from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.units.registry import Length
 from wall_engine.domain.results.stability import StabilityResult
 from wall_engine.domain.results.footing_design import FootingDesignResult, FootingSectionForces
+from wall_engine.calculations.structural.shear import concrete_shear_capacity
+from wall_engine.calculations.stability.calculator import key_passive_resistance
+from wall_engine.domain.soil.entities import Soil
 
 class FootingCalculator:
     
-    def _compute_shear_capacity(self, thickness_m: float, cover_m: float, fc_mpa: float) -> tuple[float, float, bool]:
-        d_m = thickness_m - cover_m
-        if d_m <= 0: d_m = 0.001
-        vc_kn = 0.17 * math.sqrt(fc_mpa) * 1000.0 * (d_m * 1000.0) / 1000.0
-        phi_v = 0.75
-        phi_vc = phi_v * vc_kn
-        return vc_kn, phi_vc
+    def _compute_shear_capacity(self, thickness_m: float, cover_m: float, fc_mpa: float) -> tuple[float, float]:
+        return concrete_shear_capacity(fc_mpa, thickness_m, thickness_m - cover_m)
         
     def calculate(
         self,
@@ -25,8 +23,17 @@ class FootingCalculator:
         geometry: WallGeometry,
         concrete: Concrete,
         cover: Length,
-        stability: StabilityResult
+        stability: StabilityResult,
+        foundation_soil: Soil,
+        ignore_heel_reaction: bool = False,
+        uplift_at_heel: float = 0.0
     ) -> FootingDesignResult:
+        """
+        uplift_at_heel: subpresión sin mayorar en el extremo del talón (kPa); varía
+        linealmente hasta cero en la punta y se mayora con el factor de WA. La
+        presión de contacto de la estabilidad ya es neta de subpresión, así que
+        la subpresión se suma como presión ascendente adicional en cada voladizo.
+        """
         
         toe_len = geometry.toe_length.to("m").magnitude
         stem_base = geometry.stem_thickness_base.to("m").magnitude
@@ -48,31 +55,32 @@ class FootingCalculator:
         # ==========================================
         # 1. DISEÑO DE LA PUNTA (TOE)
         # ==========================================
-        # Presión hacia arriba bajo la punta
-        q_toe_cut = get_q_at_x(x_toe_cut)
-        # Fuerza resultante del suelo = área del trapecio
-        v_up_toe = (q_toe + q_toe_cut) / 2.0 * toe_len
+        # Presión hacia arriba bajo la punta: contacto + subpresión
+        u_heel = uplift_at_heel * factors.get(LoadType.WA, 0.0)
+        def get_u_at_x(x: float) -> float:
+            return u_heel * (x / b) if b > 0 else 0.0
         
-        # Brazo de la presión del suelo (centroide del trapecio medido desde el corte x_toe_cut)
-        # Distancia del centroide desde x=0 (punta):
-        if (q_toe + q_toe_cut) > 0:
-            cx_soil = (toe_len / 3.0) * ((2 * q_toe_cut + q_toe) / (q_toe + q_toe_cut))
-        else:
-            cx_soil = toe_len / 2.0
-            
-        m_up_toe = v_up_toe * (toe_len - cx_soil)
+        q_toe_cut = get_q_at_x(x_toe_cut)
+        v_up_toe, cx_soil = _trapezoid(q_toe, q_toe_cut, toe_len)
+        v_u_toe, cx_u = _trapezoid(0.0, get_u_at_x(x_toe_cut), toe_len)
+        
+        # Momentos respecto al corte en x_toe_cut (centroides medidos desde la punta)
+        m_up_toe = v_up_toe * (toe_len - cx_soil) + v_u_toe * (toe_len - cx_u)
+        v_up_toe += v_u_toe
         
         # Cargas hacia abajo en la punta (ej. peso propio, suelo)
         v_down_toe = 0.0
         m_down_toe = 0.0
         
+        # Convención del motor: force_y > 0 es carga hacia abajo (pesos).
+        # Un tipo de carga ausente del estado límite no participa (factor 0).
         for load in loads:
-            gamma = factors.get(load.load_type, 1.0)
+            gamma = factors.get(load.load_type, 0.0)
             x_app = load.x_application.to("m").magnitude
             if x_app < x_toe_cut:
                 fy = load.force_y.to("kN/m").magnitude
-                if fy < 0: # Carga hacia abajo
-                    fy_factored = abs(fy) * gamma
+                if fy > 0: # Carga hacia abajo
+                    fy_factored = fy * gamma
                     v_down_toe += fy_factored
                     arm = x_toe_cut - x_app
                     m_down_toe += fy_factored * arm
@@ -88,27 +96,26 @@ class FootingCalculator:
         m_down_heel = 0.0
         
         for load in loads:
-            gamma = factors.get(load.load_type, 1.0)
+            gamma = factors.get(load.load_type, 0.0)
             x_app = load.x_application.to("m").magnitude
             if x_app > x_heel_cut:
                 fy = load.force_y.to("kN/m").magnitude
-                if fy < 0:
-                    fy_factored = abs(fy) * gamma
+                if fy > 0:
+                    fy_factored = fy * gamma
                     v_down_heel += fy_factored
                     arm = x_app - x_heel_cut
                     m_down_heel += fy_factored * arm
                     
-        # Presión hacia arriba bajo el talón
-        q_heel_cut = get_q_at_x(x_heel_cut)
-        v_up_heel = (q_heel_cut + q_heel) / 2.0 * heel_len
+        # Presión hacia arriba bajo el talón: contacto (se omite si el usuario elige
+        # diseñar el talón solo con su peso y el suelo encima) + subpresión
+        q_heel_cut = 0.0 if ignore_heel_reaction else get_q_at_x(x_heel_cut)
+        q_heel_end = 0.0 if ignore_heel_reaction else q_heel
+        v_up_heel, cx_soil_heel = _trapezoid(q_heel_cut, q_heel_end, heel_len)
+        v_u_heel, cx_u_heel = _trapezoid(get_u_at_x(x_heel_cut), u_heel, heel_len)
         
-        if (q_heel_cut + q_heel) > 0:
-            # Distancia desde x_heel_cut
-            cx_soil_heel = (heel_len / 3.0) * ((2 * q_heel + q_heel_cut) / (q_heel_cut + q_heel))
-        else:
-            cx_soil_heel = heel_len / 2.0
-            
-        m_up_heel = v_up_heel * cx_soil_heel
+        # Distancias medidas desde x_heel_cut
+        m_up_heel = v_up_heel * cx_soil_heel + v_u_heel * cx_u_heel
+        v_up_heel += v_u_heel
         
         vu_heel = abs(v_down_heel - v_up_heel)
         mu_heel = abs(m_down_heel - m_up_heel)
@@ -127,37 +134,22 @@ class FootingCalculator:
         # ==========================================
         key_result = None
         if geometry.key_depth is not None and geometry.key_width is not None:
-            key_depth_m = geometry.key_depth.to("m").magnitude
             key_width_m = geometry.key_width.to("m").magnitude
             
-            if key_depth_m > 0 and key_width_m > 0:
-                # Calculamos empuje pasivo de forma simplificada (Rankine)
-                # El empuje actúa en la cara frontal del dentellón.
-                # Sobrecarga = q_toe_cut (presión debajo de la zapata al inicio del dentellón, conservadoramente q_toe)
-                gamma_soil = 18.0 # Asumimos un gamma si no lo pasan, aunque no está en la firma. 
-                # Para hacerlo preciso, deberíamos recibir foundation_soil. Por ahora, 
-                # como LRFD mayoró las fuerzas, tomaremos un Kp = 3.0 estándar si no tenemos el suelo.
-                # Para ser correctos, pediré prestado el cálculo rápido.
-                # Kp = tan^2(45 + phi/2)
-                Kp = 3.0 # Fijo por ahora asumiendo phi=30, conservador o podemos pasarlo por el factor
-                
-                # Presión triangular pasiva = 0.5 * gamma * H^2 * Kp
-                # Asumimos que el motor LRFD le pasaría una fuerza EH al dentellón. Si no,
-                # lo deducimos de la demanda horizontal neta que no friccionó, pero la estática 
-                # conservadora diseña el dentellón para resistir toda su capacidad pasiva:
-                p_pasiva = 0.5 * 18.0 * (key_depth_m**2) * Kp # kN/m asumiendo gamma=18
-                
-                # O asumiendo que el cortante máximo es todo el Sliding Demand factorado
-                # Usaremos la fuerza pasiva pura.
-                vu_key = p_pasiva
-                mu_key = p_pasiva * (key_depth_m / 3.0) # actua a un tercio de la base del dentellón o 2/3 de la punta
+            if geometry.key_depth.magnitude > 0 and key_width_m > 0:
+                # El dentellón se diseña para resistir el empuje pasivo nominal
+                # usado en el análisis de deslizamiento (CDOT BDM Ej. 11, 2.4).
+                # Sección crítica: unión con la base de la zapata.
+                rep, z = key_passive_resistance(geometry, foundation_soil)
+                vu_key = rep
+                mu_key = rep * z
                 
                 vc_key_kn, phi_vc_key_kn = self._compute_shear_capacity(key_width_m, cover_m, fc_mpa)
                 
                 key_result = FootingSectionForces(
                     V_u=Q_(vu_key, "kN/m"),
                     M_u=Q_(mu_key, "kN*m/m"),
-                    M_serv=Q_(0, "kN*m/m"),
+                    M_serv=Q_(mu_key, "kN*m/m"),  # pasivo nominal, sin mayorar
                     V_c=Q_(vc_key_kn, "kN/m"),
                     phi_V_c=Q_(phi_vc_key_kn, "kN/m"),
                     is_shear_safe=vu_key <= phi_vc_key_kn
@@ -182,3 +174,13 @@ class FootingCalculator:
             ),
             key=key_result
         )
+
+
+def _trapezoid(q_a: float, q_b: float, length: float) -> tuple[float, float]:
+    """Resultante de una presión lineal de q_a a q_b en 'length' y su centroide medido desde q_a."""
+    force = (q_a + q_b) / 2.0 * length
+    if (q_a + q_b) > 0:
+        centroid = (length / 3.0) * ((q_a + 2 * q_b) / (q_a + q_b))
+    else:
+        centroid = length / 2.0
+    return force, centroid

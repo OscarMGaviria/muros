@@ -6,6 +6,43 @@ from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.loads.entities import Surcharge
 from wall_engine.domain.water.entities import Groundwater
 from wall_engine.domain.results.earth_pressure import EarthPressureResult, ForceComponent
+from wall_engine.units.registry import Length
+
+
+def total_retained_height(geometry: WallGeometry) -> Length:
+    """Altura del plano virtual en el extremo del talón: fuste + zapata + talud sobre el talón."""
+    beta = geometry.backfill_slope.to('radians').magnitude
+    h = geometry.stem_height + geometry.footing_thickness
+    if geometry.heel_length.magnitude > 0 and beta > 0:
+        h += geometry.heel_length * math.tan(beta)
+    return h
+
+
+def water_height(groundwater: Optional[Groundwater], h_ret) -> Optional[Length]:
+    """Altura de agua sobre la base de h_ret (None si no hay agua o el relleno está drenado)."""
+    if groundwater is None or groundwater.drainage_enabled or groundwater.elevation.to("m").magnitude <= 0:
+        return None
+    return min(groundwater.elevation, h_ret)
+
+
+def layered_active_force(k: float, h_ret, hw, gamma_top, gamma_bottom):
+    """
+    Resultante de una presión k·sigma_v con relleno seco (gamma_top) sobre el nivel
+    de agua y gamma_bottom por debajo. hw es la altura de agua sobre la base (None
+    o 0 si no hay agua). Retorna (fuerza, altura de aplicación sobre la base).
+    """
+    if hw is None or hw.magnitude <= 0:
+        return (0.5 * gamma_top * h_ret ** 2 * k).to("kN/m"), h_ret / 3
+    zw = h_ret - hw
+    f1 = 0.5 * gamma_top * zw ** 2 * k      # triángulo superior (seco)
+    f2 = gamma_top * zw * hw * k            # rectángulo inferior
+    f3 = 0.5 * gamma_bottom * hw ** 2 * k   # triángulo inferior
+    total = (f1 + f2 + f3).to("kN/m")
+    if total.magnitude <= 0:
+        return total, h_ret / 3
+    y = (f1 * (hw + zw / 3) + f2 * hw / 2 + f3 * hw / 3) / total
+    return total, y.to("m")
+
 
 class CoulombEarthPressure:
     
@@ -14,8 +51,16 @@ class CoulombEarthPressure:
         soil: Soil,
         geometry: WallGeometry,
         surcharges: List[Surcharge],
-        groundwater: Optional[Groundwater] = None
+        groundwater: Optional[Groundwater] = None,
+        retained_height: Optional[Length] = None
     ) -> EarthPressureResult:
+        """
+        Por defecto el empuje se evalúa sobre el plano virtual vertical que pasa
+        por el extremo del talón, con altura total desde la base de la zapata
+        (AASHTO/CCP-14 Fig. 3.11.5.3-1, 11.6.3.2). Las alturas de aplicación se
+        miden desde la base de esa altura.
+        retained_height permite evaluar otra altura (p. ej. solo el fuste).
+        """
         
         phi = soil.friction_angle.to('radians').magnitude
         beta = geometry.backfill_slope.to('radians').magnitude
@@ -41,45 +86,15 @@ class CoulombEarthPressure:
         kp = math.tan(math.radians(45) + phi/2)**2
         
         # 2. Determinar altura de retención (H_ret)
-        h_ret = geometry.stem_height
-        if geometry.heel_length.magnitude > 0 and beta > 0:
-            h_ret += geometry.heel_length * math.tan(beta)
+        h_ret = retained_height if retained_height is not None else total_retained_height(geometry)
             
-        # 3. Determinar efecto del nivel freático
-        # Asumimos que la elevación de la base es 0 para la medición de hw
+        # 3. Efecto del nivel freático (medido desde la base de h_ret): bajo el agua
+        # el suelo empuja con su peso sumergido; el agua se trata aparte (WA).
         gamma_w = Q_(9.80665, "kN/m**3")
-        
-        has_water = groundwater is not None and not groundwater.drainage_enabled and groundwater.elevation.to("m").magnitude > 0
-        
-        if not has_water:
-            # Caso seco / totalmente drenado
-            pa_mag = 0.5 * soil.unit_weight * (h_ret ** 2) * ka
-            y_pa = h_ret / 3
-        else:
-            hw = groundwater.elevation
-            if hw > h_ret:
-                hw = h_ret # El agua no puede estar por encima del suelo retenido para empujes
-                
-            zw = h_ret - hw # Profundidad desde la superficie hasta el nivel de agua
-            
-            gamma_dry = soil.unit_weight
-            gamma_sat = soil.saturated_unit_weight if soil.saturated_unit_weight else gamma_dry
-            gamma_sub = gamma_sat - gamma_w
-            
-            # Fuerza 1: Triángulo superior (seco)
-            f1 = 0.5 * gamma_dry * (zw**2) * ka
-            y1 = hw + (zw / 3)
-            
-            # Fuerza 2: Rectángulo inferior (presión constante del estrato superior)
-            f2 = gamma_dry * zw * hw * ka
-            y2 = hw / 2
-            
-            # Fuerza 3: Triángulo inferior (suelo sumergido)
-            f3 = 0.5 * gamma_sub * (hw**2) * ka
-            y3 = hw / 3
-            
-            pa_mag = f1 + f2 + f3
-            y_pa = (f1*y1 + f2*y2 + f3*y3) / pa_mag if pa_mag.magnitude > 0 else Q_(0, "m")
+        hw = water_height(groundwater, h_ret)
+        gamma_dry = soil.unit_weight
+        gamma_sat = soil.saturated_unit_weight if soil.saturated_unit_weight else gamma_dry
+        pa_mag, y_pa = layered_active_force(ka, h_ret, hw, gamma_dry, gamma_sat - gamma_w)
 
         pa_mag = pa_mag.to("kN/m")
         angle_pa = Q_(math.degrees(delta), "degrees")

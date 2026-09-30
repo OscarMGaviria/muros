@@ -7,6 +7,7 @@ from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.domain.materials.steel import ReinforcementSteel
 from wall_engine.units.registry import Length
 from wall_engine.domain.results.reinforcement import SectionReinforcement, WallReinforcementResult
+from wall_engine.calculations.structural.shear import concrete_shear_capacity
 
 class ReinforcementCalculator:
     
@@ -14,11 +15,13 @@ class ReinforcementCalculator:
         self,
         name: str,
         mu_kNm_m: float,
+        ms_kNm_m: float,
         vu_kN_m: float,
         thickness_m: float,
         cover_m: float,
         fc_mpa: float,
-        fy_mpa: float
+        fy_mpa: float,
+        es_mpa: float
     ) -> SectionReinforcement:
         
         d_m = thickness_m - cover_m
@@ -109,15 +112,13 @@ class ReinforcementCalculator:
         # ========================================================
         # CONTROL DE FISURACIÓN (AASHTO 5.7.3.4)
         # ========================================================
-        # Aproximamos M_serv si no se pasa de forma explícita
-        # En un motor completo, M_serv vendría de la combinación Service I.
-        M_serv_N_mm = (mu_kNm_m / 1.5) * 1e6 
+        # M_serv proviene de la combinación Service I
+        M_serv_N_mm = ms_kNm_m * 1e6
         
         # 1. Relación Modular n = Es / Ec
         # Ec = 4800 sqrt(f'c)
         Ec_mpa = 4800.0 * math.sqrt(fc_mpa)
-        Es_mpa = 200000.0
-        n_mod = Es_mpa / Ec_mpa
+        n_mod = es_mpa / Ec_mpa
         
         # 2. Análisis elástico agrietado
         rho_elastic = As_final_cm2 * 100.0 / (b_mm * d_mm)
@@ -147,17 +148,8 @@ class ReinforcementCalculator:
         # ========================================================
         # CORTANTE LRFD (AASHTO 5.8.3.3)
         # ========================================================
-        # dv = max(d - a/2, 0.9d, 0.72h)
-        # a = As_final * fy / (0.85 * fc * b)
         a_mm = (As_final_cm2 * 100.0 * fy_mpa) / (0.85 * fc_mpa * b_mm)
-        dv_mm = max(d_mm - a_mm/2.0, 0.9 * d_mm, 0.72 * thickness_mm)
-        
-        beta_shear = 2.0
-        # Vc = 0.083 * beta * sqrt(fc) * b * dv (en N)
-        vc_newtons = 0.083 * beta_shear * math.sqrt(fc_mpa) * b_mm * dv_mm
-        vc_kn = vc_newtons / 1000.0
-        phi_v = 0.90
-        phi_vc_kn = phi_v * vc_kn
+        _, phi_vc_kn = concrete_shear_capacity(fc_mpa, thickness_m, d_m, a_mm / 1000.0)
         
         return SectionReinforcement(
             section_name=name,
@@ -188,28 +180,33 @@ class ReinforcementCalculator:
         
         fc = concrete.fc.to("MPa").magnitude
         fy = steel.fy.to("MPa").magnitude
+        es = steel.elastic_modulus.to("MPa").magnitude
         cover_m = cover.to("m").magnitude
         
         # 1. Fuste (Stem)
         stem = self._calculate_section(
             name="Stem Base",
             mu_kNm_m=stem_forces.M_u.to("kN*m/m").magnitude,
+            ms_kNm_m=stem_forces.M_serv.to("kN*m/m").magnitude,
             vu_kN_m=stem_forces.V_u.to("kN/m").magnitude,
             thickness_m=geometry.stem_thickness_base.to("m").magnitude,
             cover_m=cover_m,
             fc_mpa=fc,
-            fy_mpa=fy
+            fy_mpa=fy,
+            es_mpa=es
         )
         
         # 2. Punta (Toe)
         toe = self._calculate_section(
             name="Toe",
             mu_kNm_m=footing_forces.toe.M_u.to("kN*m/m").magnitude,
+            ms_kNm_m=footing_forces.toe.M_serv.to("kN*m/m").magnitude,
             vu_kN_m=footing_forces.toe.V_u.to("kN/m").magnitude,
             thickness_m=geometry.footing_thickness.to("m").magnitude,
             cover_m=cover_m,
             fc_mpa=fc,
-            fy_mpa=fy
+            fy_mpa=fy,
+            es_mpa=es
         )
         
         # 3. Talón (Heel)
@@ -218,11 +215,13 @@ class ReinforcementCalculator:
         heel = self._calculate_section(
             name="Heel",
             mu_kNm_m=footing_forces.heel.M_u.to("kN*m/m").magnitude,
+            ms_kNm_m=footing_forces.heel.M_serv.to("kN*m/m").magnitude,
             vu_kN_m=footing_forces.heel.V_u.to("kN/m").magnitude,
             thickness_m=geometry.footing_thickness.to("m").magnitude,
             cover_m=cover_m,
             fc_mpa=fc,
-            fy_mpa=fy
+            fy_mpa=fy,
+            es_mpa=es
         )
         
         # 4. Dentellón (Key) - Opcional
@@ -231,11 +230,13 @@ class ReinforcementCalculator:
             key_res = self._calculate_section(
                 name="Shear Key",
                 mu_kNm_m=footing_forces.key.M_u.to("kN*m/m").magnitude,
+                ms_kNm_m=footing_forces.key.M_serv.to("kN*m/m").magnitude,
                 vu_kN_m=footing_forces.key.V_u.to("kN/m").magnitude,
                 thickness_m=geometry.key_width.to("m").magnitude, # El "espesor" de diseño a flexión del dentellón es su ancho
                 cover_m=cover_m,
                 fc_mpa=fc,
-                fy_mpa=fy
+                fy_mpa=fy,
+                es_mpa=es
             )
             
         return WallReinforcementResult(

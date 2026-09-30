@@ -14,7 +14,7 @@ class BearingCapacityCalculator:
         factored_load: FactoredResult,
         geometry: WallGeometry,
         foundation_soil: Soil,
-        surcharge_depth_q: float = 0.0 # Sobrecarga efectiva q_s = gamma * D_f
+        embedment_depth: float = 0.0 # D_f en m: profundidad de la base bajo la superficie frente a la punta
     ) -> BearingCapacityResult:
         
         phi = foundation_soil.friction_angle.to("radians").magnitude
@@ -79,14 +79,29 @@ class BearingCapacityCalculator:
             
         # 4. Ecuación general de capacidad portante
         # q_n = c Nc ic + q Nq iq + 0.5 gamma B' N_gamma i_gamma
-        # q_s es el esfuerzo vertical efectivo al nivel de fundación (ej. suelo de relleno sobre la punta)
-        q_s = surcharge_depth_q * gamma 
+        # q_s es el esfuerzo vertical efectivo al nivel de fundación: q_s = gamma * D_f
+        q_s = embedment_depth * gamma
         
         term_c = c * N_c * i_c
         term_q = q_s * N_q * i_q
         term_gamma = 0.5 * gamma * b_prime * N_gamma * i_gamma
         
         q_n = term_c + term_q + term_gamma
+        
+        # 5. Verificación LRFD
+        # Si el estudio geotécnico entrega la resistencia nominal, esa gobierna.
+        q_n_computed = q_n
+        uses_geotech = foundation_soil.bearing_capacity is not None
+        if uses_geotech:
+            q_n = foundation_soil.bearing_capacity.to("kPa").magnitude
+        
+        # Presión vertical uniforme sobre el ancho efectivo (AASHTO Ec. 11.6.3.2-1)
+        q_demand = v / b_prime if v > 0 else 0.0
+        
+        # phi_b = 0.55 (Tabla 11.5.7-1); 1.0 en Evento Extremo (11.5.8)
+        phi_b = 1.0 if 'Extreme' in factored_load.limit_state_name else 0.55
+        q_resistance = phi_b * q_n
+        ratio = q_demand / q_resistance if q_resistance > 0 else float('inf')
         
         return BearingCapacityResult(
             q_nominal=Q_(q_n, "kPa"),
@@ -96,5 +111,22 @@ class BearingCapacityCalculator:
             N_gamma=N_gamma,
             i_c=i_c,
             i_q=i_q,
-            i_gamma=i_gamma
+            i_gamma=i_gamma,
+            q_demand=q_demand,
+            phi_b=phi_b,
+            q_resistance=q_resistance,
+            bearing_ratio=ratio,
+            is_safe=ratio <= 1.0,
+            uses_geotechnical_q_n=uses_geotech,
+            q_n_computed=q_n_computed,
+            embedment_depth=embedment_depth,
+            q_overburden=q_s,
+            cohesion=c,
+            friction_angle_deg=math.degrees(phi),
+            unit_weight=gamma,
+            sum_V=v,
+            sum_H=h,
+            eccentricity=e,
+            footing_width=b,
+            limit_state=factored_load.limit_state_name
         )

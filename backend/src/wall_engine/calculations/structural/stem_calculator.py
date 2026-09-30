@@ -6,6 +6,7 @@ from wall_engine.domain.wall.geometry import WallGeometry
 from wall_engine.domain.materials.concrete import Concrete
 from wall_engine.units.registry import Length
 from wall_engine.domain.results.stem_design import StemForcesResult
+from wall_engine.calculations.structural.shear import concrete_shear_capacity
 
 class StemCalculator:
     
@@ -26,8 +27,9 @@ class StemCalculator:
         mu_serv = 0.0
         
         for load in loads:
-            # Factor de carga aplicado en el estado límite crítico
-            gamma = factors.get(load.load_type, 1.0)
+            # Factor de carga aplicado en el estado límite crítico.
+            # Un tipo de carga ausente del estado límite no participa (factor 0).
+            gamma = factors.get(load.load_type, 0.0)
             gamma_serv = 1.0 # Para Service I
             
             # Solo nos importan las fuerzas horizontales que actúan SOBRE el fuste.
@@ -48,28 +50,11 @@ class StemCalculator:
                     mu_mag += abs(factored_fx * lever_arm)
                     mu_serv += abs(serv_fx * lever_arm)
                     
-        # Capacidad al Corte del Concreto (Vc) - Fórmula ACI / AASHTO
-        # Vc = 0.17 * sqrt(f'c) * b * d  (en MPa)
-        # b = 1000 mm (1 m)
+        # Capacidad al Corte del Concreto (AASHTO / CCP-14 5.8.3.3)
         fc_mpa = concrete.fc.to("MPa").magnitude
-        
-        # Peralte efectivo (d)
         thickness_m = geometry.stem_thickness_base.to("m").magnitude
-        cover_m = cover.to("m").magnitude
-        d_m = thickness_m - cover_m
-        
-        if d_m <= 0:
-            d_m = 0.001
-            
-        b_mm = 1000.0
-        d_mm = d_m * 1000.0
-        
-        vc_newtons = 0.17 * math.sqrt(fc_mpa) * b_mm * d_mm
-        vc_kn = vc_newtons / 1000.0 # Convertir a kN
-        
-        # Factor de reducción de resistencia a corte
-        phi_v = 0.75
-        phi_vc_kn = phi_v * vc_kn
+        d_m = thickness_m - cover.to("m").magnitude
+        vc_kn, phi_vc_kn = concrete_shear_capacity(fc_mpa, thickness_m, d_m)
         
         is_safe = vu_mag <= phi_vc_kn
         
